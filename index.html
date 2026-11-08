@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>EvoLangDiff — Continuous 2D Linguistic Manifold Observer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; }
+    body { background: #0a0d12; color: #e0e6ed; display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
+
+    header { background: #11151c; border-bottom: 1px solid #21262d; padding: 8px 18px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+    h1 { font-size: 1.05rem; color: #58a6ff; letter-spacing: 0.5px; }
+
+    .workspace { display: grid; grid-template-columns: 1fr 540px; flex: 1; min-height: 0; overflow: hidden; }
+
+    .map-container { position: relative; background: #05070a; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    canvas { border: 1px solid #30363d; cursor: crosshair; image-rendering: pixelated; }
+    .map-controls { position: absolute; bottom: 12px; left: 12px; background: rgba(17, 21, 28, 0.94); padding: 8px 12px; border-radius: 6px; border: 1px solid #30363d; font-size: 0.75rem; z-index: 10; display: flex; gap: 8px; align-items: center; }
+    select, input[type=range], input[type=text] { background: #0a0d12; color: #e0e6ed; border: 1px solid #30363d; padding: 4px; border-radius: 4px; font-size: 0.75rem; }
+
+    .right-panel { background: #11151c; border-left: 1px solid #21262d; display: flex; flex-direction: column; overflow: hidden; }
+    .control-deck { background: #161b22; border-bottom: 2px solid #58a6ff; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+    .deck-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .epoch-badge { font-size: 0.95rem; font-weight: bold; color: #7ee787; background: #0a0d12; padding: 3px 8px; border-radius: 4px; border: 1px solid #30363d; }
+    
+    button { background: #238636; color: white; border: none; padding: 5px 12px; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 0.8rem; transition: background 0.15s ease, transform 0.05s ease; }
+    button:hover { background: #2ea043; }
+    button:active { transform: scale(0.97); }
+    button.pause { background: #da3633; }
+    button.secondary { background: #21262d; }
+    button.secondary:hover { background: #30363d; }
+    button.sync-btn { background: #1f6feb; font-size: 0.72rem; padding: 3px 8px; }
+    button.sync-btn:hover { background: #388bfd; }
+
+    .inspector-body { padding: 12px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; transition: opacity 0.15s ease; }
+    .inspector-body.is-loading { opacity: 0.55; pointer-events: none; }
+
+    .card { background: #0a0d12; border: 1px solid #21262d; border-radius: 6px; padding: 10px; font-size: 0.8rem; transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease; }
+    .card.evoke-pulse { animation: cardPulse 0.45s ease-out; }
+
+    @keyframes cardPulse {
+      0% { border-color: #58a6ff; box-shadow: 0 0 12px rgba(88, 166, 255, 0.35); transform: translateY(-1px); }
+      100% { border-color: #21262d; box-shadow: none; transform: translateY(0); }
+    }
+
+    .card-title { font-size: 0.72rem; text-transform: uppercase; color: #8b949e; margin-bottom: 6px; font-weight: bold; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
+
+    .stat-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.78rem; }
+    .stat-val { font-weight: 600; color: #f0f6fc; }
+
+    .tag-cloud { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    .tag { background: #161b22; border: 1px solid #30363d; color: #79c0ff; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: 500; }
+    .tag-ejective { background: #3d1c1c; border: 1px solid #f85149; color: #ff7b72; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; }
+    .tag-implosive { background: #1c352d; border: 1px solid #3fb950; color: #7ee787; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; }
+    .tag-emphatic { background: #36291a; border: 1px solid #d29922; color: #f2cc60; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; }
+    .tag-tone { background: #281d38; border: 1px solid #bc8cff; color: #d2a8ff; padding: 3px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: bold; display: flex; align-items: center; gap: 6px; }
+
+    .tone-pair-row { background: #161b22; border: 1px solid #21262d; border-radius: 4px; padding: 4px 8px; margin-bottom: 4px; font-size: 0.75rem; }
+
+    .bar-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 0.75rem; }
+    .bar-label { width: 90px; color: #8b949e; }
+    .bar-wrap { flex: 1; height: 6px; background: #161b22; border-radius: 3px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #58a6ff; border-radius: 3px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-top: 4px; }
+    th, td { border: 1px solid #21262d; padding: 3px 6px; text-align: left; }
+    th { background: #161b22; color: #8b949e; }
+
+    .word-list { display: flex; flex-direction: column; gap: 4px; max-height: 250px; overflow-y: auto; padding-right: 4px; }
+    .word-item { display: flex; justify-content: space-between; align-items: center; background: #161b22; padding: 5px 8px; border-radius: 4px; border: 1px solid #21262d; }
+    .word-main { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+    .word-meta { display: flex; flex-direction: column; align-items: flex-end; font-size: 0.7rem; color: #8b949e; }
+
+    .badge { padding: 1px 5px; border-radius: 3px; font-size: 0.68rem; font-weight: bold; }
+    .badge-noun { background: #1f3547; color: #79c0ff; }
+    .badge-verb { background: #1b3c2a; color: #7ee787; }
+    .badge-part { background: #372a1e; color: #f2cc60; }
+    .badge-adj  { background: #322238; color: #d2a8ff; }
+
+    .snapshot-tag { font-size: 0.68rem; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363d; background: #161b22; color: #8b949e; display: inline-flex; align-items: center; gap: 5px; }
+    .snapshot-tag.stale { border-color: #d29922; color: #e3b341; background: #272115; }
+
+    .marine-banner { background: #0c1c2e; border: 1px solid #1f6feb; border-radius: 6px; padding: 16px; text-align: center; color: #79c0ff; font-size: 0.85rem; line-height: 1.5; }
+
+    .ticker { background: #05070a; border-top: 1px solid #21262d; padding: 5px 14px; font-size: 0.75rem; color: #8b949e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>EvoLangDiff — Continuous 2D Spatial Dialect Diffusion & Telemetry</h1>
+    <span style="font-size: 0.75rem; color: #8b949e;">Autonomous Evolutionary Dialectology</span>
+  </header>
+
+  <div class="workspace">
+    <div class="map-container">
+      <canvas id="gridCanvas" width="600" height="600"></canvas>
+      <div class="map-controls">
+        <span>Overlay:</span>
+        <select id="overlaySelect" onchange="renderGrid()">
+          <option value="none">None (Pure Topography)</option>
+          <option value="population" selected>Demographic Density</option>
+          <option value="prestige">Imperial Prestige & Conquest</option>
+          <option value="permeability">Isoglosses / Permeability</option>
+          <option value="complexity">Syllable Complexity σ(x,y)</option>
+          <option value="head_directionality">Word Order h(x,y) [SOV ↔ VSO]</option>
+          <option value="synthesis_index">Synthesis Index s(x,y)</option>
+          <option value="humidity">Humidity</option>
+          <option value="vegetation">Vegetation</option>
+        </select>
+        <span>Opacity:</span>
+        <input type="range" id="opacitySlider" min="0" max="100" value="70" oninput="renderGrid()" style="width: 70px;">
+        <span id="coordDisplay" style="color: #58a6ff;">Hover over map</span>
+      </div>
+    </div>
+
+    <div class="right-panel">
+      <div class="control-deck">
+        <div class="deck-row">
+          <span class="epoch-badge" id="epochDisplay">Epoch: 0</span>
+          <div>
+            <button id="playBtn" onclick="togglePlay()">▶ Play</button>
+            <button class="secondary" onclick="stepSim(1)">⏭ 1</button>
+            <button class="secondary" onclick="stepSim(10)">⏭ 10</button>
+            <button class="secondary" onclick="stepSim(50)">⏭ 50</button>
+            <button class="secondary" onclick="stepSim(200)">⏭ 200</button>
+            <button class="secondary" onclick="stepSim(500)">⏭ 500</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="inspector-body" id="inspectorBody">
+        <!-- 1. Demographics & Spatial Realization -->
+        <div class="card">
+          <div class="card-title">
+            <span id="probeTitle">Dialect Snapshot</span>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <span id="probeStatusTag" class="snapshot-tag">Epoch 0</span>
+              <button class="sync-btn" onclick="queryProbe(selectedX, selectedY)">↺ Re-probe</button>
+            </div>
+          </div>
+          <div class="stat-row"><span>Coordinates:</span><span class="stat-val" id="probeCoords">-</span></div>
+          <div class="stat-row"><span>Biome State:</span><span class="stat-val" id="probeGeo">-</span></div>
+          <div class="stat-row"><span>Living Population:</span><span class="stat-val" style="color: #7ee787;" id="probePop">-</span></div>
+          <div class="stat-row" id="prestigeRow"><span>Imperial Prestige:</span><span class="stat-val" style="color: #f2cc60;" id="probePrestige">-</span></div>
+          <div class="stat-row" id="intellRow"><span>Cradle Mutual Intelligibility:</span><span class="stat-val" style="color: #d2a8ff;" id="probeIntell">-</span></div>
+        </div>
+
+        <!-- Marine Water Banner -->
+        <div id="marineView" class="marine-banner" style="display: none;">
+          🌊 <strong>Marine Expanse (Open Water)</strong><br>
+          <span style="font-size:0.75rem; color:#8b949e;">Deep oceanic waters with zero terrestrial human settlement.<br>Click emerged landmasses (green, brown, or mountainous terrain) to evoke living spoken dialects.</span>
+        </div>
+
+        <!-- Terrestrial Content -->
+        <div id="landView" style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- 2. Typology & Grammatical Frame -->
+          <div class="card">
+            <div class="card-title">Grammatical Frame & Typology</div>
+            <div class="stat-row"><span>Word Order & Alignment:</span><span class="stat-val" style="color: #58a6ff;" id="probeOrder">-</span></div>
+            <div class="stat-row"><span>Morphological Strategy:</span><span class="stat-val" id="probeStrategy">-</span></div>
+            <div class="stat-row"><span>Articles / Number System:</span><span class="stat-val" id="probeArticleNumber">-</span></div>
+            <div class="stat-row"><span>Tone System:</span><span class="stat-val" style="color: #d2a8ff;" id="probeToneSystem">-</span></div>
+            <div class="stat-row"><span>Emergent Pronouns:</span><span class="stat-val" style="color: #f2cc60;" id="probePronouns">-</span></div>
+            <div class="stat-row"><span>Emergent Numerals (1–5):</span><span class="stat-val" id="probeNumerals">-</span></div>
+          </div>
+
+          <!-- Tone Inventory & Contrast Deck -->
+          <div class="card" id="toneDeck" style="display: none;">
+            <div class="card-title">Contrastive Chao Tone Inventory</div>
+            <div class="tag-cloud" id="probeTonesList" style="margin-bottom: 8px;"></div>
+            <div style="font-size:0.7rem; color:#8b949e; margin-bottom:4px;">Minimal Tone Pairs (Semantic Pitch Distinction):</div>
+            <div id="probeTonePairs"></div>
+          </div>
+
+          <!-- 3. Noun Declension Paradigm -->
+          <div class="card">
+            <div class="card-title">Noun Declension Paradigm (<span id="nounTitle" style="color:#7ee787;">-</span>)</div>
+            <table id="nounTable"></table>
+          </div>
+
+          <!-- 4. Verb Conjugation Paradigm -->
+          <div class="card">
+            <div class="card-title">Verb Conjugation Paradigm (<span id="verbTitle" style="color:#58a6ff;">-</span>)</div>
+            <table id="verbTable"></table>
+          </div>
+
+          <!-- 5. Contrastive Phonology -->
+          <div class="card">
+            <div class="card-title">
+              <span>Contrastive Phonemic Inventory</span>
+              <span class="badge" style="background:#21262d; color:#79c0ff;" id="phonemeCountBadge">0 Phonemes</span>
+            </div>
+            <div style="font-size:0.7rem; color:#8b949e;">Vowels:</div>
+            <div class="tag-cloud" id="probeVowels"></div>
+            <div style="font-size:0.7rem; color:#8b949e; margin-top:6px;">Consonants:</div>
+            <div class="tag-cloud" id="probeConsonants"></div>
+            <div id="phonologyFeatures" style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <span>Living Vocabulary (<span id="totalVocabCount" style="color:#7ee787;">0</span> Words | Top <span id="displayedCount">0</span>)</span>
+              <input type="text" id="lexiconSearch" placeholder="Filter..." oninput="filterLexicon()" style="width: 120px; padding: 2px 6px;">
+            </div>
+            <div class="word-list" id="probeLexicon"></div>
+          </div>
+
+          <!-- 7. Local 7D Mindset Genome -->
+          <div class="card">
+            <div class="card-title">Local 7D Mindset Genome (Sum = 7.0)</div>
+            <div id="probeAttention"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ticker" id="tickerDisplay">Connecting to EvoLangDiff simulation server...</div>
+
+  <script>
+    let gridData = null;
+    let selectedX = 32, selectedY = 32;
+    let probedEpoch = 0;
+    let isPlaying = false;
+    let currentLexicon = [];
+    let probeRipple = null;
+
+    async function fetchState() {
+      try {
+        const res = await fetch('/api/state');
+        gridData = await res.json();
+        updateUI();
+      } catch (e) {
+        safeSet('tickerDisplay', 'Error connecting to backend: ' + e);
+      }
+    }
+
+    async function stepSim(epochs = 1) {
+      try {
+        const res = await fetch('/api/step', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ epochs })
+        });
+        gridData = await res.json();
+        updateUI();
+        checkStaleStatus();
+      } catch (e) {
+        safeSet('tickerDisplay', 'Error stepping simulation: ' + e);
+      }
+    }
+
+    function checkStaleStatus() {
+      if (!gridData) return;
+      const tag = document.getElementById('probeStatusTag');
+      if (!tag) return;
+      if (gridData.epoch !== probedEpoch) {
+        tag.className = "snapshot-tag stale";
+        tag.innerText = `Snapshot @ Ep. ${probedEpoch} (World: ${gridData.epoch})`;
+      } else {
+        tag.className = "snapshot-tag";
+        tag.innerText = `Snapshot @ Ep. ${probedEpoch}`;
+      }
+    }
+
+    async function queryProbe(x, y) {
+      selectedX = x; selectedY = y;
+      triggerRipple(x, y);
+
+      const inspector = document.getElementById('inspectorBody');
+      if (inspector) inspector.classList.add('is-loading');
+
+      try {
+        const res = await fetch('/api/probe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ x, y })
+        });
+        const data = await res.json();
+        probedEpoch = data.epoch !== undefined ? data.epoch : (gridData ? gridData.epoch : 0);
+        renderProbeData(data);
+        pulseCards();
+        checkStaleStatus();
+      } catch (e) {
+        console.error("Probe error:", e);
+      } finally {
+        if (inspector) inspector.classList.remove('is-loading');
+      }
+    }
+
+    function triggerRipple(x, y) {
+      probeRipple = { x, y, r: 2.0, alpha: 1.0 };
+      animateRipple();
+    }
+
+    function animateRipple() {
+      if (!probeRipple) return;
+      probeRipple.r += 1.8;
+      probeRipple.alpha -= 0.055;
+      renderGrid();
+      if (probeRipple.alpha > 0.0) {
+        requestAnimationFrame(animateRipple);
+      } else {
+        probeRipple = null;
+        renderGrid();
+      }
+    }
+
+    function pulseCards() {
+      const cards = document.querySelectorAll('.card');
+      cards.forEach(c => {
+        c.classList.remove('evoke-pulse');
+        void c.offsetWidth;
+        c.classList.add('evoke-pulse');
+      });
+    }
+
+    async function playLoop() {
+      while (isPlaying) {
+        await stepSim(1);
+        await new Promise(r => setTimeout(r, 40));
+      }
+    }
+
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      const btn = document.getElementById('playBtn');
+      if (isPlaying) {
+        btn.innerText = "❚❚ Pause";
+        btn.classList.add("pause");
+        playLoop();
+      } else {
+        btn.innerText = "▶ Play";
+        btn.classList.remove("pause");
+      }
+    }
+
+    function safeSet(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.innerText = text;
+    }
+
+    function updateUI() {
+      if (!gridData) return;
+      safeSet('epochDisplay', `Epoch: ${gridData.epoch}`);
+      if (gridData.events && gridData.events.length > 0) {
+        safeSet('tickerDisplay', `Latest: ${gridData.events[gridData.events.length - 1]}`);
+      }
+      renderGrid();
+    }
+
+    function renderProbeData(d) {
+      if (!d || !d.coordinates) return;
+
+      const marineView = document.getElementById('marineView');
+      const landView = document.getElementById('landView');
+      const intellRow = document.getElementById('intellRow');
+      const prestigeRow = document.getElementById('prestigeRow');
+
+      safeSet('probeCoords', `(${d.coordinates[0]}, ${d.coordinates[1]})`);
+
+      if (d.is_water) {
+        safeSet('probeTitle', d.dialect_name);
+        safeSet('probeGeo', `Depth: ${d.geography.depth_meters.toLocaleString()} m | Temp: ${d.geography.temperature.toFixed(2)}`);
+        safeSet('probePop', '0 citizens (Submerged)');
+        if (intellRow) intellRow.style.display = 'none';
+        if (prestigeRow) prestigeRow.style.display = 'none';
+        if (marineView) marineView.style.display = 'block';
+        if (landView) landView.style.display = 'none';
+        return;
+      }
+
+      if (intellRow) intellRow.style.display = 'flex';
+      if (prestigeRow) prestigeRow.style.display = 'flex';
+      if (marineView) marineView.style.display = 'none';
+      if (landView) landView.style.display = 'flex';
+
+      safeSet('probeTitle', `${d.dialect_name} at (${d.coordinates[0]}, ${d.coordinates[1]})`);
+      safeSet('probeGeo', `Alt: ${d.geography.elevation.toFixed(2)} | Hum: ${d.geography.humidity.toFixed(2)} | Temp: ${d.geography.temperature.toFixed(2)} | Veg: ${d.geography.vegetation.toFixed(2)}`);
+      safeSet('probePop', `${d.demographics.population.toLocaleString()} citizens (Cap: ${d.demographics.carrying_capacity.toFixed(2)})`);
+      safeSet('probePrestige', `${d.demographics.prestige.toFixed(2)}`);
+      safeSet('probeIntell', `${(d.cradle_intelligibility * 100).toFixed(1)}%`);
+
+      safeSet('probeOrder', `${d.typology.word_order} [${d.typology.alignment}]`);
+      safeSet('probeStrategy', `${d.typology.morphological_strategy} (S_idx: ${d.typology.synthesis_index.toFixed(2)}, σ: ${d.typology.syllable_complexity.toFixed(2)})`);
+      safeSet('probeArticleNumber', `${d.typology.article_system} | ${d.typology.number_system}`);
+      safeSet('probeToneSystem', `${d.typology.tone_system || 'Non-Tonal'}`);
+
+      // Tone Inventory Deck
+      const toneDeck = document.getElementById('toneDeck');
+      const toneList = document.getElementById('probeTonesList');
+      const tonePairs = document.getElementById('probeTonePairs');
+      if (d.phonology.has_tones && d.phonology.tone_inventory && d.phonology.tone_inventory.length > 0) {
+        if (toneDeck) toneDeck.style.display = 'block';
+        if (toneList) {
+          toneList.innerHTML = d.phonology.tone_inventory.map(t => 
+            `<span class="tag-tone">${t.symbol} <span style="font-size:0.68rem; color:#e0e6ed; font-weight:normal;">${t.name}</span></span>`
+          ).join('');
+        }
+        if (tonePairs && d.phonology.minimal_tone_pairs && d.phonology.minimal_tone_pairs.length > 0) {
+          tonePairs.innerHTML = d.phonology.minimal_tone_pairs.map(pair => `
+            <div class="tone-pair-row">
+              <span style="color:#8b949e; font-size:0.7rem;">Segmental base: /*${pair.base}/</span>
+              <div style="display:flex; gap:10px; margin-top:2px;">
+                ${pair.variants.map(v => `<span style="color:#7ee787; font-weight:bold;">/${v.form}/ <span style="color:#f2cc60; font-weight:normal;">«${v.gloss}»</span></span>`).join('  |  ')}
+              </div>
+            </div>
+          `).join('');
+        } else if (tonePairs) {
+          tonePairs.innerHTML = '<span style="color:#8b949e; font-size:0.7rem;">Tone is phonemic across roots; minimal pair collision threshold not yet crossed.</span>';
+        }
+      } else {
+        if (toneDeck) toneDeck.style.display = 'none';
+      }
+
+      if (d.pronouns) {
+        safeSet('probePronouns', `1sg: ${d.pronouns['1sg'] || '-'} | 2sg: ${d.pronouns['2sg'] || '-'} | 3sg: ${d.pronouns['3sg'] || '-'}`);
+      }
+      if (d.numerals) {
+        safeSet('probeNumerals', Object.entries(d.numerals).map(([num, word]) => `${num}:${word}`).join('  '));
+      }
+
+      const nTitle = document.getElementById('nounTitle');
+      if (nTitle && d.noun_paradigm) {
+        nTitle.innerText = `«${d.noun_paradigm.noun_gloss}» /${d.noun_paradigm.noun}/`;
+      }
+      const nTable = document.getElementById('nounTable');
+      if (nTable && d.noun_paradigm && d.noun_paradigm.table) {
+        nTable.innerHTML = '<tr><th>Case / Number</th><th>Inflected Dialect Form</th></tr>';
+        for (const [k, v] of Object.entries(d.noun_paradigm.table)) {
+          nTable.innerHTML += `<tr><td>${k}</td><td style="color:#7ee787; font-weight:bold;">${v}</td></tr>`;
+        }
+      }
+
+      const vTitle = document.getElementById('verbTitle');
+      if (vTitle && d.verb_paradigm) {
+        vTitle.innerText = `«${d.verb_paradigm.verb_gloss}» /${d.verb_paradigm.verb}/`;
+      }
+      const vTable = document.getElementById('verbTable');
+      if (vTable && d.verb_paradigm && d.verb_paradigm.table) {
+        vTable.innerHTML = '<tr><th>TAM / Agreement</th><th>Inflected Dialect Form</th></tr>';
+        for (const [k, v] of Object.entries(d.verb_paradigm.table)) {
+          vTable.innerHTML += `<tr><td>${k}</td><td style="color:#58a6ff; font-weight:bold;">${v}</td></tr>`;
+        }
+      }
+
+      safeSet('phonemeCountBadge', `${d.phonology.total_phonemes} Phonemes`);
+      const vWrap = document.getElementById('probeVowels');
+      vWrap.innerHTML = d.phonology.vowels.map(v => `<span class="tag">/${v}/</span>`).join('');
+
+      const cWrap = document.getElementById('probeConsonants');
+      cWrap.innerHTML = d.phonology.consonants.map(c => {
+        if (c.includes('ʼ')) return `<span class="tag-ejective">/${c}/</span>`;
+        if (['ɓ', 'ɗ', 'ɠ', 'ʄ'].includes(c)) return `<span class="tag-implosive">/${c}/</span>`;
+        if (c.includes('ˁ')) return `<span class="tag-emphatic">/${c}/</span>`;
+        return `<span class="tag">/${c}/</span>`;
+      }).join('');
+
+      const featsWrap = document.getElementById('phonologyFeatures');
+      featsWrap.innerHTML = '';
+      if (d.phonology.has_tones) featsWrap.innerHTML += '<span class="badge" style="background:#2a1e38; color:#d2a8ff;">Phonemic Tonogenesis</span>';
+      if (d.phonology.has_implosives) featsWrap.innerHTML += '<span class="badge" style="background:#1c352d; color:#7ee787;">Implosives</span>';
+      if (d.phonology.has_pharyngealized) featsWrap.innerHTML += '<span class="badge" style="background:#36291a; color:#f2cc60;">Pharyngealized Emphatics</span>';
+      if (d.phonology.has_ejectives) featsWrap.innerHTML += '<span class="badge" style="background:#3d1c1c; color:#ff7b72;">Ejectives</span>';
+
+      currentLexicon = d.lexicon || [];
+      if (d.vocabulary_stats) {
+        safeSet('totalVocabCount', d.vocabulary_stats.total_lexicon_size.toLocaleString());
+        safeSet('displayedCount', d.vocabulary_stats.displayed_sample.toLocaleString());
+      } else {
+        safeSet('totalVocabCount', currentLexicon.length.toLocaleString());
+        safeSet('displayedCount', currentLexicon.length.toLocaleString());
+      }
+      renderLexiconList(currentLexicon);
+
+      const gNames = ["Concreteness", "Animacy", "Valence", "Potency", "Dynamism", "Sociality", "Extension"];
+      const aWrap = document.getElementById('probeAttention');
+      aWrap.innerHTML = d.cultural_attention.map((val, i) => `
+        <div class="bar-row">
+          <span class="bar-label">${gNames[i]}:</span>
+          <div class="bar-wrap"><div class="bar-fill" style="width: ${(val / 2.5) * 100}%;"></div></div>
+          <span style="width: 32px; font-weight: bold; text-align: right;">${val.toFixed(2)}</span>
+        </div>
+      `).join('');
+    }
+
+    function getPosBadgeClass(pos) {
+      if (pos === "Noun") return "badge-noun";
+      if (pos === "Verb") return "badge-verb";
+      if (pos === "Adjective") return "badge-adj";
+      return "badge-part";
+    }
+
+    function renderLexiconList(list) {
+      const lWrap = document.getElementById('probeLexicon');
+      if (!lWrap) return;
+      if (!list || list.length === 0) {
+        lWrap.innerHTML = '<div style="color:#8b949e; padding:8px;">No matching words found.</div>';
+        return;
+      }
+      lWrap.innerHTML = list.map(w => `
+        <div class="word-item">
+          <div class="word-main">
+            <span style="color:#7ee787; font-weight:bold; font-size:0.85rem;">/${w.form}/</span>
+            <span style="color:#f2cc60; font-weight:500;">«${w.gloss}»</span>
+            <span class="badge ${getPosBadgeClass(w.pos)}">${w.pos}</span>
+          </div>
+          <div class="word-meta">
+            <span>Proto: /*${w.proto_form}/</span>
+            <span style="font-size:0.65rem; color:#6e7681;">${w.energy_cost} J</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function filterLexicon() {
+      const q = (document.getElementById('lexiconSearch').value || '').toLowerCase().trim();
+      if (!q) {
+        renderLexiconList(currentLexicon);
+        return;
+      }
+      const filtered = currentLexicon.filter(w => 
+        (w.form && w.form.toLowerCase().includes(q)) ||
+        (w.plain && w.plain.toLowerCase().includes(q)) ||
+        (w.gloss && w.gloss.toLowerCase().includes(q)) ||
+        (w.proto_form && w.proto_form.toLowerCase().includes(q)) ||
+        (w.pos && w.pos.toLowerCase().includes(q))
+      );
+      renderLexiconList(filtered);
+    }
+
+    function getPopColor(val) {
+      if (val < 0.05) return null;
+      if (val < 0.35) {
+        const t = (val - 0.05) / 0.30;
+        return `rgb(${Math.floor(100 + t * 80)}, ${Math.floor(25 + t * 25)}, 20)`;
+      } else if (val < 1.20) {
+        const t = (val - 0.35) / 0.85;
+        return `rgb(${Math.floor(180 + t * 60)}, ${Math.floor(50 + t * 80)}, 20)`;
+      } else if (val < 3.00) {
+        const t = (val - 1.20) / 1.80;
+        return `rgb(${Math.floor(240 + t * 15)}, ${Math.floor(130 + t * 90)}, ${Math.floor(20 + t * 40)})`;
+      } else if (val < 6.50) {
+        const t = (val - 3.00) / 3.50;
+        return `rgb(${Math.floor(255 - t * 120)}, ${Math.floor(220 + t * 35)}, ${Math.floor(60 + t * 195)})`;
+      } else {
+        const t = Math.min(1.0, (val - 6.50) / 6.0);
+        return `rgb(${Math.floor(135 + t * 120)}, ${Math.floor(255 - t * 40)}, ${Math.floor(255)})`;
+      }
+    }
+
+    function renderGrid() {
+      if (!gridData) return;
+      const canvas = document.getElementById('gridCanvas');
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      const N = gridData.size;
+      const cellW = W / N, cellH = H / N;
+      const overlay = document.getElementById('overlaySelect').value;
+      const opacity = parseInt(document.getElementById('opacitySlider').value) / 100.0;
+
+      for (let r = 0; r < N; r++) {
+        for (let c = 0; c < N; c++) {
+          const elev = gridData.elevation[r][c];
+          if (elev <= 0.0) {
+            const depth = Math.floor(Math.min(1.0, -elev) * 90);
+            ctx.fillStyle = `rgb(10, ${30 + depth}, ${110 + depth})`;
+          } else {
+            const lum = Math.floor(elev * 160 + 35);
+            ctx.fillStyle = `rgb(${lum}, ${lum + 15}, ${lum - 10})`;
+          }
+          ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
+        }
+      }
+
+      if (overlay !== "none" && opacity > 0.0) {
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        const mat = gridData[overlay] || gridData['elevation'];
+
+        if (mat) {
+          for (let r = 0; r < N; r++) {
+            for (let c = 0; c < N; c++) {
+              const val = mat[r][c];
+
+              if (overlay === 'population') {
+                const col = getPopColor(val);
+                if (!col) continue;
+                ctx.fillStyle = col;
+              } else if (overlay === 'prestige') {
+                if (val < 0.05) continue;
+                ctx.fillStyle = `rgb(${Math.floor(val * 240 + 20)}, ${Math.floor(val * 180 + 20)}, 40)`;
+              } else if (overlay === 'permeability') {
+                ctx.fillStyle = `rgb(${Math.floor((1.0 - val) * 240)}, ${Math.floor(val * 210)}, ${Math.floor(val * 240)})`;
+              } else if (overlay === 'complexity') {
+                ctx.fillStyle = `rgb(${Math.floor(val * 240)}, 40, ${Math.floor((1.0 - val) * 240)})`;
+              } else if (overlay === 'head_directionality') {
+                ctx.fillStyle = `rgb(${Math.floor(val * 240 + 30)}, ${Math.floor(val * 180)}, ${Math.floor((1.0 - val) * 240)})`;
+              } else if (overlay === 'synthesis_index') {
+                ctx.fillStyle = `rgb(${Math.floor((1.0 - val) * 200 + 30)}, ${Math.floor(val * 220)}, 180)`;
+              } else if (overlay === 'humidity') {
+                ctx.fillStyle = `rgb(15, ${Math.floor(val * 160 + 30)}, ${Math.floor(val * 220 + 30)})`;
+              } else {
+                ctx.fillStyle = `rgb(${Math.floor(val * 200 + 20)}, ${Math.floor(val * 200 + 20)}, 50)`;
+              }
+              ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
+            }
+          }
+        }
+        ctx.restore();
+      }
+
+      ctx.strokeStyle = "#58a6ff";
+      ctx.lineWidth = 2.0;
+      ctx.strokeRect(selectedX * cellW - 2, selectedY * cellH - 2, cellW + 4, cellH + 4);
+
+      if (probeRipple) {
+        ctx.save();
+        ctx.strokeStyle = `rgba(88, 166, 255, ${probeRipple.alpha})`;
+        ctx.fillStyle = `rgba(88, 166, 255, ${probeRipple.alpha * 0.2})`;
+        ctx.lineWidth = 2.0;
+        ctx.beginPath();
+        ctx.arc(
+          (probeRipple.x + 0.5) * cellW,
+          (probeRipple.y + 0.5) * cellH,
+          probeRipple.r,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    function getGridCoords(e) {
+      const canvas = document.getElementById('gridCanvas');
+      const rect = canvas.getBoundingClientRect();
+      const relX = Math.max(0, Math.min(rect.width - 0.001, e.clientX - rect.left));
+      const relY = Math.max(0, Math.min(rect.height - 0.001, e.clientY - rect.top));
+      const x = Math.floor((relX / rect.width) * gridData.size);
+      const y = Math.floor((relY / rect.height) * gridData.size);
+      return {
+        x: Math.max(0, Math.min(gridData.size - 1, x)),
+        y: Math.max(0, Math.min(gridData.size - 1, y))
+      };
+    }
+
+    const canvas = document.getElementById('gridCanvas');
+    canvas.addEventListener('mousemove', e => {
+      if (!gridData) return;
+      const { x, y } = getGridCoords(e);
+      const elev = gridData.elevation[y][x];
+      const popThousands = Math.round(gridData.population[y][x] * 250);
+      const terrainType = elev <= 0.0 ? `SEA (Depth: ${Math.round(Math.abs(elev)*3800)}m)` : `LAND (Alt: ${elev.toFixed(2)})`;
+      safeSet('coordDisplay', `Cell: (${x}, ${y}) | ${terrainType} | Pop: ~${popThousands.toLocaleString()}k`);
+    });
+
+    canvas.addEventListener('click', e => {
+      if (!gridData) return;
+      const { x, y } = getGridCoords(e);
+      queryProbe(x, y);
+    });
+
+    fetchState().then(() => queryProbe(32, 32));
+  </script>
+</body>
+</html>
