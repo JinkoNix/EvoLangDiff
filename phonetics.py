@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from typing import Sequence
+from typing import NamedTuple, Sequence
 from collections import Counter
 import numpy as np
 
@@ -104,25 +104,37 @@ def continuous_sonority(g: np.ndarray) -> float:
     return round(1.0 + oral_conductance * 4.0 + voice_radiation + turbulence_noise, 3)
 
 
-def is_vowel_gesture(g: np.ndarray) -> bool | np.ndarray:
-    """Vectorized and scalar detection of unobstructed vocalic resonance."""
+def vocalic_potential(g: np.ndarray) -> float | np.ndarray:
+    """
+    Continuous physical potential [0.0, 1.0] of unobstructed vocalic resonance.
+    Replaces discrete thresholds with smooth aerodynamic laminar flow and modal phonation.
+    """
     g_arr = np.asarray(g, dtype=np.float32)
     if g_arr.ndim == 1:
         oral_ap = min(float(g_arr[0]), float(g_arr[2]), float(g_arr[4]))
-        is_glot = (float(g_arr[7]) <= 0.10 or float(g_arr[7]) >= 0.78)
-        return bool(oral_ap >= 0.28 and not is_glot)
+        g7 = float(g_arr[7])
+        laminar_flow = 1.0 / (1.0 + math.exp(-20.0 * (oral_ap - 0.16)))
+        modal_voicing = math.exp(-((g7 - 0.40) ** 2) / 0.0288)
+        return laminar_flow * modal_voicing
     else:
         oral_ap = np.min(g_arr[..., [0, 2, 4]], axis=-1)
-        is_glot = (g_arr[..., 7] <= 0.10) | (g_arr[..., 7] >= 0.78)
-        return (oral_ap >= 0.28) & (~is_glot)
+        g7 = g_arr[..., 7]
+        laminar_flow = 1.0 / (1.0 + np.exp(-20.0 * (oral_ap - 0.16)))
+        modal_voicing = np.exp(-((g7 - 0.40) ** 2) / 0.0288)
+        return laminar_flow * modal_voicing
+
+
+def is_vowel_gesture(g: np.ndarray) -> bool | np.ndarray:
+    """Statistical classification: True when vocalic resonance dominates over friction/closure."""
+    pot = vocalic_potential(g)
+    return pot >= 0.50
 
 
 # -----------------------------------------------------------------------------
 # 2. CONTINUOUS 9D PHONEME MODEL
 # -----------------------------------------------------------------------------
 
-@dataclass(slots=True, frozen=True)
-class PhonemeEnergy:
+class PhonemeEnergy(NamedTuple):
     motor_effort: float
     air_consumption: float
     voicing_drag: float
@@ -850,10 +862,18 @@ _ATTRACTOR_SYMBOLS: tuple[str, ...] = tuple(item[0] for item in _CANONICAL_ATTRA
 _ATTRACTOR_MATRIX: np.ndarray = np.array([item[1] for item in _CANONICAL_ATTRACTORS], dtype=np.float32)
 
 
-def resolve_tract_vector(g: np.ndarray) -> str:
-    """Vectorized SIMD nearest-neighbor lookup on the Quantal manifold."""
+def resolve_tract_vector(g: np.ndarray, is_nucleus: bool | None = None) -> str:
+    """
+    Maps 8D tract vector to IPA symbol.
+    If is_nucleus is specified, syllable prosody determines vowel vs glide distinction.
+    """
     g_arr = np.asarray(g, dtype=np.float32)
-    is_voc = is_vowel_gesture(g_arr)
+    
+    # Syllabic role takes precedence; fallback to continuous potential
+    if is_nucleus is not None:
+        is_voc = is_nucleus
+    else:
+        is_voc = bool(is_vowel_gesture(g_arr))
 
     candidate_indices = [
         i for i, (sym, _) in enumerate(_CANONICAL_ATTRACTORS)
@@ -868,7 +888,6 @@ def resolve_tract_vector(g: np.ndarray) -> str:
     dists = np.sum(w * ((sub_matrix - g_arr[np.newaxis, :]) ** 2), axis=-1)
     symbol = _ATTRACTOR_SYMBOLS[candidate_indices[int(np.argmin(dists))]]
 
-    # Diacritic suprasegmental features
     if symbol in _VOWEL_SET and g_arr[6] >= 0.22:
         symbol = f"{symbol}\u0303"
     elif g_arr[7] >= 0.80 and symbol in _VOICELESS_STOPS:
