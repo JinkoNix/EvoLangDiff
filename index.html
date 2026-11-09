@@ -65,16 +65,19 @@
     th, td { border: 1px solid #21262d; padding: 3px 6px; text-align: left; }
     th { background: #161b22; color: #8b949e; }
 
-    .word-list { display: flex; flex-direction: column; gap: 4px; max-height: 250px; overflow-y: auto; padding-right: 4px; }
-    .word-item { display: flex; justify-content: space-between; align-items: center; background: #161b22; padding: 5px 8px; border-radius: 4px; border: 1px solid #21262d; }
+    .word-list { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; padding-right: 4px; }
+    .word-item { display: flex; justify-content: space-between; align-items: center; background: #161b22; padding: 6px 9px; border-radius: 4px; border: 1px solid #21262d; }
     .word-main { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
-    .word-meta { display: flex; flex-direction: column; align-items: flex-end; font-size: 0.7rem; color: #8b949e; }
+    .word-meta { display: flex; flex-direction: column; align-items: flex-end; font-size: 0.68rem; color: #8b949e; }
 
     .badge { padding: 1px 5px; border-radius: 3px; font-size: 0.68rem; font-weight: bold; }
     .badge-noun { background: #1f3547; color: #79c0ff; }
     .badge-verb { background: #1b3c2a; color: #7ee787; }
     .badge-part { background: #372a1e; color: #f2cc60; }
     .badge-adj  { background: #322238; color: #d2a8ff; }
+    .badge-cls  { background: #281d38; color: #bc8cff; border: 1px solid #4a3266; }
+    .badge-art  { background: #162c3d; color: #58a6ff; border: 1px solid #2a4c68; }
+    .badge-inf  { background: #123326; color: #3fb950; border: 1px solid #235c42; }
 
     .snapshot-tag { font-size: 0.68rem; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363d; background: #161b22; color: #8b949e; display: inline-flex; align-items: center; gap: 5px; }
     .snapshot-tag.stale { border-color: #d29922; color: #e3b341; background: #272115; }
@@ -97,18 +100,19 @@
       <div class="map-controls">
         <span>Overlay:</span>
         <select id="overlaySelect" onchange="renderGrid()">
-          <option value="none">None (Pure Topography)</option>
-          <option value="population" selected>Demographic Density</option>
-          <option value="prestige">Imperial Prestige & Conquest</option>
+          <option value="hegemony" selected>Imperial Hegemony & Civilizations</option>
+          <option value="population">Demographic Density</option>
+          <option value="prestige">Imperial Prestige & Agglomeration</option>
           <option value="permeability">Isoglosses / Permeability</option>
           <option value="complexity">Syllable Complexity σ(x,y)</option>
           <option value="head_directionality">Word Order h(x,y) [SOV ↔ VSO]</option>
           <option value="synthesis_index">Synthesis Index s(x,y)</option>
           <option value="humidity">Humidity</option>
           <option value="vegetation">Vegetation</option>
+          <option value="none">None (Pure Topography)</option>
         </select>
         <span>Opacity:</span>
-        <input type="range" id="opacitySlider" min="0" max="100" value="70" oninput="renderGrid()" style="width: 70px;">
+        <input type="range" id="opacitySlider" min="0" max="100" value="75" oninput="renderGrid()" style="width: 70px;">
         <span id="coordDisplay" style="color: #58a6ff;">Hover over map</span>
       </div>
     </div>
@@ -129,7 +133,6 @@
       </div>
 
       <div class="inspector-body" id="inspectorBody">
-        <!-- 1. Demographics & Spatial Realization -->
         <div class="card">
           <div class="card-title">
             <span id="probeTitle">Dialect Snapshot</span>
@@ -139,32 +142,30 @@
             </div>
           </div>
           <div class="stat-row"><span>Coordinates:</span><span class="stat-val" id="probeCoords">-</span></div>
+          <div class="stat-row"><span>Dominant Hegemony:</span><span class="stat-val" style="color: #f2cc60;" id="probePolity">-</span></div>
           <div class="stat-row"><span>Biome State:</span><span class="stat-val" id="probeGeo">-</span></div>
           <div class="stat-row"><span>Living Population:</span><span class="stat-val" style="color: #7ee787;" id="probePop">-</span></div>
-          <div class="stat-row" id="prestigeRow"><span>Imperial Prestige:</span><span class="stat-val" style="color: #f2cc60;" id="probePrestige">-</span></div>
+          <div class="stat-row" id="prestigeRow"><span>Imperial Prestige:</span><span class="stat-val" style="color: #58a6ff;" id="probePrestige">-</span></div>
           <div class="stat-row" id="intellRow"><span>Cradle Mutual Intelligibility:</span><span class="stat-val" style="color: #d2a8ff;" id="probeIntell">-</span></div>
         </div>
 
-        <!-- Marine Water Banner -->
         <div id="marineView" class="marine-banner" style="display: none;">
           🌊 <strong>Marine Expanse (Open Water)</strong><br>
-          <span style="font-size:0.75rem; color:#8b949e;">Deep oceanic waters with zero terrestrial human settlement.<br>Click emerged landmasses (green, brown, or mountainous terrain) to evoke living spoken dialects.</span>
+          <span style="font-size:0.75rem; color:#8b949e;">Deep oceanic waters with zero terrestrial human settlement.<br>Click emerged landmasses to evoke living spoken dialects.</span>
         </div>
 
-        <!-- Terrestrial Content -->
         <div id="landView" style="display: flex; flex-direction: column; gap: 10px;">
-          <!-- 2. Typology & Grammatical Frame -->
           <div class="card">
             <div class="card-title">Grammatical Frame & Typology</div>
             <div class="stat-row"><span>Word Order & Alignment:</span><span class="stat-val" style="color: #58a6ff;" id="probeOrder">-</span></div>
             <div class="stat-row"><span>Morphological Strategy:</span><span class="stat-val" id="probeStrategy">-</span></div>
+            <div class="stat-row"><span>Noun Classes / Genders:</span><span class="stat-val" style="color: #d2a8ff;" id="probeClasses">-</span></div>
             <div class="stat-row"><span>Articles / Number System:</span><span class="stat-val" id="probeArticleNumber">-</span></div>
-            <div class="stat-row"><span>Tone System:</span><span class="stat-val" style="color: #d2a8ff;" id="probeToneSystem">-</span></div>
-            <div class="stat-row"><span>Emergent Pronouns:</span><span class="stat-val" style="color: #f2cc60;" id="probePronouns">-</span></div>
+            <div class="stat-row"><span>Tone System:</span><span class="stat-val" style="color: #f2cc60;" id="probeToneSystem">-</span></div>
+            <div class="stat-row"><span>Emergent Pronouns:</span><span class="stat-val" style="color: #7ee787;" id="probePronouns">-</span></div>
             <div class="stat-row"><span>Emergent Numerals (1–5):</span><span class="stat-val" id="probeNumerals">-</span></div>
           </div>
 
-          <!-- Tone Inventory & Contrast Deck -->
           <div class="card" id="toneDeck" style="display: none;">
             <div class="card-title">Contrastive Chao Tone Inventory</div>
             <div class="tag-cloud" id="probeTonesList" style="margin-bottom: 8px;"></div>
@@ -172,19 +173,16 @@
             <div id="probeTonePairs"></div>
           </div>
 
-          <!-- 3. Noun Declension Paradigm -->
           <div class="card">
             <div class="card-title">Noun Declension Paradigm (<span id="nounTitle" style="color:#7ee787;">-</span>)</div>
             <table id="nounTable"></table>
           </div>
 
-          <!-- 4. Verb Conjugation Paradigm -->
           <div class="card">
             <div class="card-title">Verb Conjugation Paradigm (<span id="verbTitle" style="color:#58a6ff;">-</span>)</div>
             <table id="verbTable"></table>
           </div>
 
-          <!-- 5. Contrastive Phonology -->
           <div class="card">
             <div class="card-title">
               <span>Contrastive Phonemic Inventory</span>
@@ -205,7 +203,6 @@
             <div class="word-list" id="probeLexicon"></div>
           </div>
 
-          <!-- 7. Local 7D Mindset Genome -->
           <div class="card">
             <div class="card-title">Local 7D Mindset Genome (Sum = 7.0)</div>
             <div id="probeAttention"></div>
@@ -361,6 +358,7 @@
 
       if (d.is_water) {
         safeSet('probeTitle', d.dialect_name);
+        safeSet('probePolity', 'None (Marine Abyss)');
         safeSet('probeGeo', `Depth: ${d.geography.depth_meters.toLocaleString()} m | Temp: ${d.geography.temperature.toFixed(2)}`);
         safeSet('probePop', '0 citizens (Submerged)');
         if (intellRow) intellRow.style.display = 'none';
@@ -376,6 +374,11 @@
       if (landView) landView.style.display = 'flex';
 
       safeSet('probeTitle', `${d.dialect_name} at (${d.coordinates[0]}, ${d.coordinates[1]})`);
+      
+      const pol = d.polity || {};
+      const capTag = pol.is_capital ? ' ★ [Capital]' : '';
+      safeSet('probePolity', `${pol.name || 'Ungoverned'} (${pol.control_percentage || 0}% Hegemony)${capTag}`);
+
       safeSet('probeGeo', `Alt: ${d.geography.elevation.toFixed(2)} | Hum: ${d.geography.humidity.toFixed(2)} | Temp: ${d.geography.temperature.toFixed(2)} | Veg: ${d.geography.vegetation.toFixed(2)}`);
       safeSet('probePop', `${d.demographics.population.toLocaleString()} citizens (Cap: ${d.demographics.carrying_capacity.toFixed(2)})`);
       safeSet('probePrestige', `${d.demographics.prestige.toFixed(2)}`);
@@ -383,6 +386,12 @@
 
       safeSet('probeOrder', `${d.typology.word_order} [${d.typology.alignment}]`);
       safeSet('probeStrategy', `${d.typology.morphological_strategy} (S_idx: ${d.typology.synthesis_index.toFixed(2)}, σ: ${d.typology.syllable_complexity.toFixed(2)})`);
+      
+      const clsText = (d.typology.noun_classes && d.typology.noun_classes.length > 0) 
+        ? `${d.typology.noun_classes.length} Classes (${d.typology.noun_classes.join(', ')})`
+        : 'None (Common)';
+      safeSet('probeClasses', clsText);
+
       safeSet('probeArticleNumber', `${d.typology.article_system} | ${d.typology.number_system}`);
       safeSet('probeToneSystem', `${d.typology.tone_system || 'Non-Tonal'}`);
 
@@ -422,11 +431,11 @@
 
       const nTitle = document.getElementById('nounTitle');
       if (nTitle && d.noun_paradigm) {
-        nTitle.innerText = `«${d.noun_paradigm.noun_gloss}» /${d.noun_paradigm.noun}/`;
+        nTitle.innerText = d.noun_paradigm.title_display || `«${d.noun_paradigm.noun_gloss}» /${d.noun_paradigm.noun}/`;
       }
       const nTable = document.getElementById('nounTable');
       if (nTable && d.noun_paradigm && d.noun_paradigm.table) {
-        nTable.innerHTML = '<tr><th>Case / Number</th><th>Inflected Dialect Form</th></tr>';
+        nTable.innerHTML = '<tr><th>Case / Number (State)</th><th>Inflected Dialect Form</th></tr>';
         for (const [k, v] of Object.entries(d.noun_paradigm.table)) {
           nTable.innerHTML += `<tr><td>${k}</td><td style="color:#7ee787; font-weight:bold;">${v}</td></tr>`;
         }
@@ -434,11 +443,11 @@
 
       const vTitle = document.getElementById('verbTitle');
       if (vTitle && d.verb_paradigm) {
-        vTitle.innerText = `«${d.verb_paradigm.verb_gloss}» /${d.verb_paradigm.verb}/`;
+        vTitle.innerText = d.verb_paradigm.title_display || `«${d.verb_paradigm.verb_gloss}» /${d.verb_paradigm.verb}/`;
       }
       const vTable = document.getElementById('verbTable');
       if (vTable && d.verb_paradigm && d.verb_paradigm.table) {
-        vTable.innerHTML = '<tr><th>TAM / Agreement</th><th>Inflected Dialect Form</th></tr>';
+        vTable.innerHTML = '<tr><th>TAM / Agreement (Form)</th><th>Inflected Dialect Form</th></tr>';
         for (const [k, v] of Object.entries(d.verb_paradigm.table)) {
           vTable.innerHTML += `<tr><td>${k}</td><td style="color:#58a6ff; font-weight:bold;">${v}</td></tr>`;
         }
@@ -498,19 +507,27 @@
         lWrap.innerHTML = '<div style="color:#8b949e; padding:8px;">No matching words found.</div>';
         return;
       }
-      lWrap.innerHTML = list.map(w => `
-        <div class="word-item">
-          <div class="word-main">
-            <span style="color:#7ee787; font-weight:bold; font-size:0.85rem;">/${w.form}/</span>
-            <span style="color:#f2cc60; font-weight:500;">«${w.gloss}»</span>
-            <span class="badge ${getPosBadgeClass(w.pos)}">${w.pos}</span>
+      lWrap.innerHTML = list.map(w => {
+        const hasCls = w.grammar_info && w.grammar_info.class;
+        const hasArt = w.grammar_info && w.grammar_info.article;
+        const isVerb = w.pos === "Verb";
+        return `
+          <div class="word-item">
+            <div class="word-main">
+              <span style="color:#7ee787; font-weight:bold; font-size:0.85rem;">/${w.form}/</span>
+              <span style="color:#f2cc60; font-weight:500;">«${w.gloss}»</span>
+              <span class="badge ${getPosBadgeClass(w.pos)}">${w.pos}</span>
+              ${hasCls ? `<span class="badge badge-cls">${w.grammar_info.class}</span>` : ''}
+              ${hasArt ? `<span class="badge badge-art">${w.grammar_info.article}</span>` : ''}
+              ${isVerb ? `<span class="badge badge-inf">INF</span>` : ''}
+            </div>
+            <div class="word-meta">
+              <span>Root: /${w.root_form || w.plain}/ | Proto: /*${w.proto_form}/</span>
+              <span style="font-size:0.65rem; color:#6e7681;">U: ${w.usage_frequency || 1.0} | ${w.energy_cost} J</span>
+            </div>
           </div>
-          <div class="word-meta">
-            <span>Proto: /*${w.proto_form}/</span>
-            <span style="font-size:0.65rem; color:#6e7681;">${w.energy_cost} J</span>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     function filterLexicon() {
@@ -521,10 +538,12 @@
       }
       const filtered = currentLexicon.filter(w => 
         (w.form && w.form.toLowerCase().includes(q)) ||
+        (w.root_form && w.root_form.toLowerCase().includes(q)) ||
         (w.plain && w.plain.toLowerCase().includes(q)) ||
         (w.gloss && w.gloss.toLowerCase().includes(q)) ||
         (w.proto_form && w.proto_form.toLowerCase().includes(q)) ||
-        (w.pos && w.pos.toLowerCase().includes(q))
+        (w.pos && w.pos.toLowerCase().includes(q)) ||
+        (w.grammar_info && w.grammar_info.class && w.grammar_info.class.toLowerCase().includes(q))
       );
       renderLexiconList(filtered);
     }
@@ -576,44 +595,65 @@
       if (overlay !== "none" && opacity > 0.0) {
         ctx.save();
         ctx.globalAlpha = opacity;
-        const mat = gridData[overlay] || gridData['elevation'];
 
-        if (mat) {
+        if (overlay === "hegemony") {
+          // Dynamic territory rendering using each polity's actual linguistic RGB color
+          const hegMat = gridData.hegemony;
+          const strMat = gridData.hegemony_strength;
+          const colorMap = gridData.polity_colors || {};
+
           for (let r = 0; r < N; r++) {
             for (let c = 0; c < N; c++) {
-              const val = mat[r][c];
-
-              if (overlay === 'population') {
-                const col = getPopColor(val);
-                if (!col) continue;
-                ctx.fillStyle = col;
-              } else if (overlay === 'prestige') {
-                if (val < 0.05) continue;
-                ctx.fillStyle = `rgb(${Math.floor(val * 240 + 20)}, ${Math.floor(val * 180 + 20)}, 40)`;
-              } else if (overlay === 'permeability') {
-                ctx.fillStyle = `rgb(${Math.floor((1.0 - val) * 240)}, ${Math.floor(val * 210)}, ${Math.floor(val * 240)})`;
-              } else if (overlay === 'complexity') {
-                ctx.fillStyle = `rgb(${Math.floor(val * 240)}, 40, ${Math.floor((1.0 - val) * 240)})`;
-              } else if (overlay === 'head_directionality') {
-                ctx.fillStyle = `rgb(${Math.floor(val * 240 + 30)}, ${Math.floor(val * 180)}, ${Math.floor((1.0 - val) * 240)})`;
-              } else if (overlay === 'synthesis_index') {
-                ctx.fillStyle = `rgb(${Math.floor((1.0 - val) * 200 + 30)}, ${Math.floor(val * 220)}, 180)`;
-              } else if (overlay === 'humidity') {
-                ctx.fillStyle = `rgb(15, ${Math.floor(val * 160 + 30)}, ${Math.floor(val * 220 + 30)})`;
-              } else {
-                ctx.fillStyle = `rgb(${Math.floor(val * 200 + 20)}, ${Math.floor(val * 200 + 20)}, 50)`;
-              }
+              if (gridData.elevation[r][c] <= 0.0) continue;
+              const pid = hegMat[r][c];
+              const pstr = strMat[r][c];
+              if (pstr < 0.10) continue;
+              const rgb = colorMap[pid] || [160, 160, 160];
+              ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${Math.min(0.85, pstr * 0.95)})`;
               ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
+            }
+          }
+        } else {
+          const mat = gridData[overlay] || gridData['elevation'];
+          if (mat) {
+            for (let r = 0; r < N; r++) {
+              for (let c = 0; c < N; c++) {
+                const val = mat[r][c];
+
+                if (overlay === 'population') {
+                  const col = getPopColor(val);
+                  if (!col) continue;
+                  ctx.fillStyle = col;
+                } else if (overlay === 'prestige') {
+                  if (val < 0.05) continue;
+                  ctx.fillStyle = `rgb(${Math.floor(val * 240 + 20)}, ${Math.floor(val * 180 + 20)}, 40)`;
+                } else if (overlay === 'permeability') {
+                  ctx.fillStyle = `rgb(${Math.floor((1.0 - val) * 240)}, ${Math.floor(val * 210)}, ${Math.floor(val * 240)})`;
+                } else if (overlay === 'complexity') {
+                  ctx.fillStyle = `rgb(${Math.floor(val * 240)}, 40, ${Math.floor((1.0 - val) * 240)})`;
+                } else if (overlay === 'head_directionality') {
+                  ctx.fillStyle = `rgb(${Math.floor(val * 240 + 30)}, ${Math.floor(val * 180)}, ${Math.floor((1.0 - val) * 240)})`;
+                } else if (overlay === 'synthesis_index') {
+                  ctx.fillStyle = `rgb(${Math.floor((1.0 - val) * 200 + 30)}, ${Math.floor(val * 220)}, 180)`;
+                } else if (overlay === 'humidity') {
+                  ctx.fillStyle = `rgb(15, ${Math.floor(val * 160 + 30)}, ${Math.floor(val * 220 + 30)})`;
+                } else {
+                  ctx.fillStyle = `rgb(${Math.floor(val * 200 + 20)}, ${Math.floor(val * 200 + 20)}, 50)`;
+                }
+                ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
+              }
             }
           }
         }
         ctx.restore();
       }
 
+      // Selected cell highlight
       ctx.strokeStyle = "#58a6ff";
       ctx.lineWidth = 2.0;
       ctx.strokeRect(selectedX * cellW - 2, selectedY * cellH - 2, cellW + 4, cellH + 4);
 
+      // Probe ripple animation
       if (probeRipple) {
         ctx.save();
         ctx.strokeStyle = `rgba(88, 166, 255, ${probeRipple.alpha})`;

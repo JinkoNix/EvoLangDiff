@@ -58,40 +58,76 @@ class LexiconGenerator:
         hum = getattr(env, "humidity", 0.5) if env else 0.5
         rho_air = math.exp(-0.90 * max(0.0, alt))
 
-        # 3 Continuous Anatomical GMM Means: [Lip_D, Lip_P, Tip_D, Tip_L, Body_D, Body_L, Velum, Glottis]
-        centers = [
-            np.array([0.02, 0.0, 1.00, 0.00, 0.80, 0.50, 0.0, 0.50], dtype=np.float32),  # Labial
-            np.array([1.00, 0.0, 0.04, 0.25, 0.80, 0.50, 0.0, 0.50], dtype=np.float32),  # Coronal
-            np.array([1.00, 0.0, 1.00, 0.00, 0.05, 0.75, 0.0, 0.50], dtype=np.float32),  # Dorsal
-        ]
-        chosen_mean = centers[random.choices([0, 1, 2], weights=[0.33, 0.38, 0.29])[0]]
-        sample_g = chosen_mean + np.random.normal(0.0, 0.04, size=8).astype(np.float32)
+        # Base neutral tract: tip relaxed on floor (g2=1.0)
+        g = np.array([1.0, 0.0, 1.0, 0.25, 0.80, 0.50, 0.0, 0.40], dtype=np.float32)
+        organ_roll = random.random()
 
-        # Continuous laryngeal mode adaptation
-        ejective_potential = (1.0 / (1.0 + math.exp(12.0 * (rho_air - 0.72)))) * (1.0 / (1.0 + math.exp(10.0 * (hum - 0.40))))
-        if random.random() < ejective_potential * 0.75:
-            sample_g[7] = float(np.clip(np.random.normal(0.02, 0.015), 0.0, 0.08))
-        else:
-            sample_g[7] = float(np.clip(np.random.choice([0.40, 0.60], p=[0.45, 0.55]) + np.random.normal(0.0, 0.03), 0.30, 0.75))
+        if organ_roll < 0.32:  # Labials (p, b, m, f, v)
+            manner = random.random()
+            if manner < 0.55:
+                g[0], g[7] = 0.00, 0.40 if random.random() < 0.50 else 0.60  # p, b
+            elif manner < 0.80:
+                g[0], g[6], g[7] = 0.00, 0.60, 0.40                          # m
+            else:
+                g[0], g[7] = 0.08, 0.65 if random.random() < 0.50 else 0.40  # f, v
 
-        return Phoneme(np.clip(sample_g, 0.0, 1.0), duration=1.0)
+        elif organ_roll < 0.72:  # Coronals: explicitly synthesizes t, d, s, z, l, r, n
+            manner = random.random()
+            g[3] = 0.25
+            if manner < 0.40:
+                g[2], g[7] = 0.00, 0.60 if random.random() < 0.55 else 0.40  # t, d (stops)
+            elif manner < 0.65:
+                g[2], g[7] = 0.06, 0.65 if random.random() < 0.60 else 0.40  # s, z (sibilants)
+            elif manner < 0.80:
+                g[2], g[7] = 0.28, 0.40                                       # l (lateral liquid)
+            elif manner < 0.90:
+                g[2], g[7] = 0.14, 0.40                                       # r (rhotic tap)
+            else:
+                g[2], g[6], g[7] = 0.00, 0.60, 0.40                          # n (nasal)
+
+        else:  # Dorsals (k, g, x, ŋ)
+            manner = random.random()
+            g[5] = 0.75
+            if manner < 0.65:
+                g[4], g[7] = 0.00, 0.60 if random.random() < 0.55 else 0.40  # k, g
+            elif manner < 0.85:
+                g[4], g[7] = 0.10, 0.65 if random.random() < 0.50 else 0.40  # x, ɣ
+            else:
+                g[4], g[6], g[7] = 0.00, 0.60, 0.40                          # ŋ
+
+        # Alpine ejective emergence
+        if alt > 0.45 and hum < 0.35 and (g[0] == 0.0 or g[2] == 0.0 or g[4] == 0.0):
+            if random.random() < 0.35:
+                g[7] = 0.02
+
+        # Lowland humid implosive emergence
+        if alt < 0.25 and hum > 0.60 and (g[0] == 0.0 or g[2] == 0.0):
+            if random.random() < 0.30:
+                g[7] = 0.15
+
+        return Phoneme(g, duration=1.0)
 
     @classmethod
     def synthesize_resonant_gesture(cls, env=None) -> Phoneme:
         hum = getattr(env, "humidity", 0.5) if env else 0.5
         drying = max(0.0, 0.45 - hum)
 
-        # Sample continuous Height (Body_D) and Backness (Body_L)
-        target_height = float(np.clip(np.random.normal(0.65 - 0.15 * drying, 0.18), 0.35, 0.95))
-        target_backness = float(np.clip(np.random.normal(0.50, 0.25), 0.05, 0.95))
+        # Explore vowel space smoothly across height and backness
+        target_height = float(np.clip(np.random.normal(0.60 - 0.15 * drying, 0.18), 0.25, 0.95))
+        target_backness = float(np.clip(np.random.normal(0.50, 0.25), 0.08, 0.90))
 
-        # Protrusion couples continuously with backness
+        # Physiological rounding coupling
         p_round = 1.0 / (1.0 + math.exp(-8.0 * (target_backness - 0.55)))
         lip_p = float(np.clip(np.random.normal(p_round, 0.10), 0.0, 1.0))
         lip_d = (1.0 - lip_p) * 1.00 + lip_p * 0.35
 
-        g = np.array([lip_d, lip_p, 1.0, 0.0, target_height, target_backness, 0.0, 0.40], dtype=np.float32)
-        tau = 1.45 if random.random() < 0.20 else 1.00
+        if target_height > 0.75:
+            lip_p = min(lip_p, 1.15 - target_height)
+            lip_d = max(lip_d, 0.50)
+
+        # Vowels have tongue tip relaxed on the floor (g2 = 1.0)
+        g = np.array([lip_d, lip_p, 1.00, 0.00, target_height, target_backness, 0.00, 0.40], dtype=np.float32)
+        tau = 1.40 if random.random() < 0.20 else 1.00
         return Phoneme(g, duration=tau)
 
     @classmethod
@@ -135,18 +171,6 @@ class LexiconGenerator:
     @classmethod
     def populate_proto_lexicon(cls, population: float = 0.50, **kwargs) -> list[Word]:
         words: list[Word] = []
-        p_schwa = Phoneme([1.0, 0.0, 1.0, 0.0, 0.75, 0.45, 0.0, 0.40], duration=1.0)
-        p_labial = Phoneme([0.0, 0.0, 1.0, 0.0, 0.80, 0.50, 0.0, 0.40], duration=1.0)
-        p_nasal = Phoneme([0.0, 0.0, 1.0, 0.0, 0.80, 0.50, 0.6, 0.40], duration=1.0)
-        p_coronal = Phoneme([1.0, 0.0, 0.0, 0.25, 0.80, 0.50, 0.0, 0.60], duration=1.0)
-
-        patterns = [
-            [p_labial, p_schwa], [p_nasal, p_schwa], [p_coronal, p_schwa], [p_schwa, p_nasal],
-            [p_labial, p_schwa, p_labial, p_schwa], [p_nasal, p_schwa, p_nasal, p_schwa],
-            [p_coronal, p_schwa, p_coronal, p_schwa], [p_labial, p_schwa, p_coronal, p_schwa],
-            [p_nasal, p_schwa, p_coronal, p_schwa], [p_coronal, p_schwa, p_labial, p_schwa],
-            [p_schwa, p_labial, p_schwa], [p_schwa, p_coronal, p_schwa]
-        ]
         seed_names = [
             "water", "fire", "sun", "moon", "earth", "stone", "tree", "mother", "father",
             "person", "beast", "self", "other", "head", "body", "eye", "hand", "heart",
@@ -155,14 +179,17 @@ class LexiconGenerator:
         ]
 
         for i, seed_vec in enumerate(SemanticSpace.BIOLOGICAL_COGNITIVE_SEEDS):
-            pat = patterns[i % len(patterns)]
-            v_int = abs(seed_vec.valence - 0.50) + seed_vec.potency * 0.4
-            phonemes = [Phoneme(p.g, duration=round(p.duration * (0.85 + 0.40 * v_int), 2)) for p in pat]
+            phonemes = cls.generate_gestural_root(profile=None, env=None, existing_words=words)
+            valence_intensity = abs(seed_vec.valence - 0.50) + seed_vec.potency * 0.40
+            scaled_phonemes = [
+                Phoneme(p.g, duration=round(p.duration * (0.85 + 0.30 * valence_intensity), 2))
+                for p in phonemes
+            ]
             cat = LexicalCategory.FUNCTIONAL_CLOSED if seed_vec.is_grammatical else LexicalCategory.CONTENT_OPEN
 
             w = Word(
                 vector=seed_vec,
-                phonemes=phonemes,
+                phonemes=scaled_phonemes,
                 derivation=DerivationRecord(root_family_id=len(words) + 1),
                 usage_frequency=1.5,
                 category=cat,
@@ -170,6 +197,7 @@ class LexiconGenerator:
             )
             w.senses = (seed_names[i] if i < len(seed_names) else f"concept_{i}",)
             words.append(w)
+
         return words
 
     @classmethod
@@ -201,7 +229,6 @@ class LexiconGenerator:
         damping = max(0.0, 1.0 - (n_current / k_cap))
         attempts = max(2, min(30, int(round(n_current * growth_rate * damping))))
 
-        # Continuous Boltzmann Strategy Probabilities
         density = min(1.0, n_current / 800.0)
         mean_len = sum(len(w.phonemes) for w in living) / max(1, n_current)
         len_pen = math.tanh(max(0.0, mean_len - 5.0))

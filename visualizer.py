@@ -26,7 +26,7 @@ class DiffusionSimulationState:
         self.grid = WorldGrid(size=size, seed=42)
         self.proto_lexicon = LexiconGenerator.populate_proto_lexicon(population=0.50)
         self.events: list[str] = [
-            f"Primordial Cradle founded at ({self.size//2}, {self.size//2}) with {len(self.proto_lexicon)} ancestral roots.",
+            f"Primordial Cradle founded at ({self.size//2}, {self.size//2}) with {len(self.proto_lexicon)} distinct ancestral roots.",
             "Continuous 2D Planetary Manifold initialized."
         ]
 
@@ -36,13 +36,22 @@ class DiffusionSimulationState:
 
         t = self.grid.epoch
         v_estimate = int(59 + 180.0 * np.sqrt(t / 100.0) + 0.35 * t)
+        active_polities = len(self.grid.polity_centers)
         self.events.append(
-            f"Epoch {t}: Tensors diffused. Active manifold capacity: ~{v_estimate} words."
+            f"Epoch {t}: Tensors diffused. Active Civilizations: {active_polities} | Lexicon capacity: ~{v_estimate} words."
         )
         if len(self.events) > 30:
             self.events = self.events[-30:]
 
     def get_grid_state(self) -> dict:
+        h_sum = np.sum(self.grid.hegemony, axis=-1, keepdims=True)
+        h_norm = np.where(h_sum > 0.01, self.grid.hegemony / np.maximum(0.01, h_sum), 0.0)
+        dom_hegemony = np.argmax(self.grid.hegemony, axis=-1)
+        dom_strength = np.max(h_norm, axis=-1)
+
+        # Mapping polity IDs to their dynamic linguistic typology colors
+        color_map = {p["id"]: p.get("color", [200, 100, 100]) for p in self.grid.polity_centers}
+
         return {
             "epoch": self.grid.epoch,
             "size": self.size,
@@ -58,6 +67,10 @@ class DiffusionSimulationState:
             "complexity": np.round(self.grid.typology[..., 2], 2).tolist(),
             "head_directionality": np.round(self.grid.typology[..., 0], 2).tolist(),
             "synthesis_index": np.round(self.grid.typology[..., 1], 2).tolist(),
+            "hegemony": dom_hegemony.tolist(),
+            "hegemony_strength": np.round(dom_strength, 2).tolist(),
+            "polities": self.grid.polity_centers,
+            "polity_colors": color_map,
         }
 
     def probe_coordinate(self, x: int, y: int) -> dict:

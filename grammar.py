@@ -1,5 +1,6 @@
 """
-grammar.py — Autonomous Morphosyntax and Continuous Typological Paradigm Discovery.
+grammar.py — Autonomous Morphosyntax, Continuous Typological Paradigms,
+and Emergent Noun/Verb Classification.
 Part of the EvoLangDiff Engine.
 """
 
@@ -167,7 +168,7 @@ class NounPhrase:
                     post_gloss = [f"[{self.case_label}:{self.case_operator.id}]"]
         else:
             n_form = base_noun.form
-            tags = [self.case_label] if self.case_label != "Nom" else []
+            tags = [self.case_label] if self.case_label not in ("Nom", "Abs") else []
             if is_art_bound: tags.append(art_label)
             if is_num_bound: tags.append(self.number_label)
             if is_class_bound and cls_tag: tags.append(cls_tag)
@@ -326,7 +327,7 @@ class GrammarEngine:
         category_type: str = "case",
     ) -> tuple[Word, bool]:
         h = lang.profile.head_directionality
-        is_prefix = (category_type == "class") or (h > 0.50)
+        is_prefix = (category_type in ("class", "infinitive")) or (h > 0.50)
 
         if not cls.should_fuse_morpheme(noun, operator, lang, is_prefix=is_prefix):
             return noun.copy(), False
@@ -380,6 +381,14 @@ class GrammarEngine:
         return [w for _, w in scored]
 
     @classmethod
+    def assign_noun_class(cls, noun: Word, paradigm: EmergentParadigm) -> EmergentClass | None:
+        """Assigns noun to an emergent class based on cognitive animacy and sociality."""
+        if not paradigm.noun_classes:
+            return None
+        # Class 1: Animate / Social; Class 2: Inanimate / Physical
+        return paradigm.noun_classes[0] if noun.vector.animacy >= 0.45 else paradigm.noun_classes[1]
+
+    @classmethod
     def discover_grammar_system(cls, lang: Language) -> EmergentParadigm:
         cached = getattr(lang, "_cached_grammar_paradigm", None)
         if cached is not None:
@@ -393,30 +402,42 @@ class GrammarEngine:
 
         assigned_word_ids: set[int] = set()
 
-        def pick_emergent(projection: Sequence[float], max_count: int = 1) -> list[Word]:
+        def pick_emergent(projection: Sequence[float], max_count: int = 1, base_usage: float = 12.0) -> list[Word]:
             ranked = cls._rank_bleached_candidates(lang, projection)
             chosen = []
             for w in ranked:
                 if w.id in assigned_word_ids:
                     continue
-                chosen.append(w)
+                w_gram = w.copy()
+                w_gram.usage_frequency = max(w.usage_frequency, base_usage)
+                chosen.append(w_gram)
                 assigned_word_ids.add(w.id)
                 if len(chosen) >= max_count:
                     break
             return chosen or ([candidates[0]] if candidates else [])
 
-        temporals = pick_emergent([0.1, 0.1, 0.5, 0.3, 0.9, 0.2, 0.7], max_count=4)
-        spatials = pick_emergent([0.2, 0.0, 0.5, 0.2, 0.1, 0.1, 0.9], max_count=6)
-        modals = pick_emergent([0.2, 0.4, 0.6, 0.8, 0.5, 0.4, 0.2], max_count=4)
-        determiners = pick_emergent([0.2, 0.0, 0.5, 0.3, 0.1, 0.2, 0.4], max_count=4)
-        relativizers = pick_emergent([0.1, 0.0, 0.5, 0.2, 0.1, 0.1, 0.6], max_count=2)
-        complementizers = pick_emergent([0.2, 0.6, 0.5, 0.3, 0.6, 0.8, 0.2], max_count=2)
+        temporals = pick_emergent([0.1, 0.1, 0.5, 0.3, 0.9, 0.2, 0.7], max_count=4, base_usage=14.0)
+        spatials = pick_emergent([0.2, 0.0, 0.5, 0.2, 0.1, 0.1, 0.9], max_count=6, base_usage=16.0)
+        modals = pick_emergent([0.2, 0.4, 0.6, 0.8, 0.5, 0.4, 0.2], max_count=4, base_usage=12.0)
+        determiners = pick_emergent([0.2, 0.0, 0.5, 0.3, 0.1, 0.2, 0.4], max_count=4, base_usage=18.0)
+        relativizers = pick_emergent([0.1, 0.0, 0.5, 0.2, 0.1, 0.1, 0.6], max_count=2, base_usage=15.0)
+        complementizers = pick_emergent([0.2, 0.6, 0.5, 0.3, 0.6, 0.8, 0.2], max_count=2, base_usage=15.0)
+
+        # Emergent Noun Classes (Animate vs Inanimate gender distinction)
+        noun_classes: list[EmergentClass] = []
+        if s_idx >= 0.35 or attn[1] >= 0.90:
+            m_anim = pick_emergent([0.8, 1.0, 0.6, 0.5, 0.5, 0.8, 0.2], max_count=1, base_usage=18.0)
+            m_inan = pick_emergent([0.8, 0.1, 0.5, 0.5, 0.2, 0.1, 0.6], max_count=1, base_usage=18.0)
+            noun_classes = [
+                EmergentClass(class_id=1, label="Animate", centroid=SemanticSpace.PERSON, marker=m_anim[0] if m_anim else None),
+                EmergentClass(class_id=2, label="Inanimate", centroid=SemanticSpace.STONE, marker=m_inan[0] if m_inan else None),
+            ]
 
         pronouns: dict[str, Word] = {}
-        p_1sg = pick_emergent([0.5, 0.9, 0.6, 0.4, 0.4, 0.3, 0.1], max_count=1)
-        p_2sg = pick_emergent([0.5, 0.9, 0.6, 0.4, 0.4, 0.8, 0.1], max_count=1)
-        p_3sg = pick_emergent([0.6, 0.9, 0.5, 0.4, 0.4, 0.5, 0.3], max_count=1)
-        p_pl = pick_emergent([0.3, 0.7, 0.5, 0.5, 0.3, 0.7, 0.7], max_count=2)
+        p_1sg = pick_emergent([0.5, 0.9, 0.6, 0.4, 0.4, 0.3, 0.1], max_count=1, base_usage=22.0)
+        p_2sg = pick_emergent([0.5, 0.9, 0.6, 0.4, 0.4, 0.8, 0.1], max_count=1, base_usage=20.0)
+        p_3sg = pick_emergent([0.6, 0.9, 0.5, 0.4, 0.4, 0.5, 0.3], max_count=1, base_usage=22.0)
+        p_pl = pick_emergent([0.3, 0.7, 0.5, 0.5, 0.3, 0.7, 0.7], max_count=2, base_usage=18.0)
 
         if p_1sg: pronouns["1sg"] = p_1sg[0]
         if p_2sg: pronouns["2sg"] = p_2sg[0]
@@ -428,8 +449,8 @@ class GrammarEngine:
 
         articles: dict[str, Word] = {}
         p_article_emerge = 1.0 / (1.0 + math.exp(6.0 * (s_idx - 0.45))) * (attn[6] / 1.0)
-        if p_article_emerge >= 0.50:
-            art_cand = pick_emergent([0.2, 0.0, 0.5, 0.2, 0.0, 0.1, 0.3], max_count=1)
+        if p_article_emerge >= 0.45:
+            art_cand = pick_emergent([0.2, 0.0, 0.5, 0.2, 0.0, 0.1, 0.3], max_count=1, base_usage=26.0)
             if art_cand:
                 articles["def"] = art_cand[0]
                 art_system = "Definite Article"
@@ -442,17 +463,17 @@ class GrammarEngine:
         p_number_emerge = 1.0 / (1.0 + math.exp(-8.0 * (s_idx - 0.35)))
         if p_number_emerge >= 0.50:
             num_system = "Singular / Plural"
-            pl_cand = pick_emergent([0.2, 0.2, 0.5, 0.5, 0.1, 0.3, 0.8], max_count=1)
+            pl_cand = pick_emergent([0.2, 0.2, 0.5, 0.5, 0.1, 0.3, 0.8], max_count=1, base_usage=20.0)
             if pl_cand:
                 number_operators["pl"] = pl_cand[0]
         else:
             num_system = "Transnumeral (No Grammatical Number)"
 
         digits: dict[int, Word] = {}
-        d1 = pick_emergent([0.1, 0.0, 0.5, 0.2, 0.0, 0.0, 0.1], max_count=1)
+        d1 = pick_emergent([0.1, 0.0, 0.5, 0.2, 0.0, 0.0, 0.1], max_count=1, base_usage=24.0)
         if d1: digits[1] = d1[0]
         for d_idx in range(2, 6):
-            cands = pick_emergent([0.1, 0.0, 0.5, 0.4, 0.0, 0.1, 0.5], max_count=1)
+            cands = pick_emergent([0.1, 0.0, 0.5, 0.4, 0.0, 0.1, 0.5], max_count=1, base_usage=18.0)
             if cands: digits[d_idx] = cands[0]
 
         p_an = math.exp(-10.0 * (s_idx - 0.20) ** 2)
@@ -460,7 +481,7 @@ class GrammarEngine:
         p_ag = math.exp(-10.0 * (s_idx - 0.80) ** 2)
         strat_mode = max([("analytic", p_an), ("fusional", p_fu), ("concatenative", p_ag)], key=lambda x: x[1])[0]
 
-        theme_cand = pick_emergent([0.4, 0.6, 0.5, 0.6, 0.7, 0.4, 0.3], max_count=1)
+        theme_cand = pick_emergent([0.4, 0.6, 0.5, 0.6, 0.7, 0.4, 0.3], max_count=1, base_usage=16.0)
         emergent_verb_classes = [
             EmergentVerbClass(
                 class_id=1,
@@ -474,7 +495,7 @@ class GrammarEngine:
 
         paradigm = EmergentParadigm(
             temporal_operators=temporals, spatial_operators=spatials, determiners=determiners, modal_operators=modals,
-            noun_classes=[], verb_classes=emergent_verb_classes, relativizers=relativizers, complementizers=complementizers,
+            noun_classes=noun_classes, verb_classes=emergent_verb_classes, relativizers=relativizers, complementizers=complementizers,
             pronouns=pronouns, number_system=num_system, number_operators=number_operators, article_system=art_system,
             articles=articles, numeral_chain=NumeralChain(primary_base=10), digits=digits, radix_words={},
         )
@@ -492,6 +513,60 @@ class GrammarEngine:
             para.formatted_cache[value] = res
             return res
         return f"/{value}/"
+
+    @classmethod
+    def get_infinitive_form(cls, verb: Word, lang: Language, paradigm: EmergentParadigm | None = None) -> str:
+        """Derives standard grammatical infinitive (fused thematic marker or analytic particle)."""
+        para = paradigm or cls.discover_grammar_system(lang)
+        s_idx = lang.profile.synthesis_index
+        h = lang.profile.head_directionality
+        theme_op = para.verb_classes[0].thematic_marker if para.verb_classes else None
+
+        if not theme_op:
+            return f"/{verb.form}/"
+
+        if s_idx >= 0.38:
+            inf_verb, is_b = cls.apply_spatial_relator(verb, theme_op, lang, category_type="infinitive")
+            if is_b:
+                return f"/{inf_verb.form}/"
+
+        p_head = 1.0 / (1.0 + math.exp(-6.0 * (h - 0.50)))
+        return f"/{theme_op.form} {verb.form}/" if p_head >= 0.5 else f"/{verb.form} {theme_op.form}/"
+
+    @classmethod
+    def get_citation_presentation(
+        cls, word: Word, lang: Language, paradigm: EmergentParadigm | None = None
+    ) -> tuple[str, str, dict]:
+        """Provides correctly declined/inflected surface citation form for vocabulary display."""
+        para = paradigm or cls.discover_grammar_system(lang)
+        pos = cls.get_part_of_speech(word)
+
+        if pos == "Verb":
+            inf_str = cls.get_infinitive_form(word, lang, para)
+            return inf_str.strip("/"), word.plain_form, {
+                "pos": "Verb",
+                "infinitive": inf_str,
+                "strategy": para.verb_classes[0].morph_strategy if para.verb_classes else "analytic",
+            }
+        elif pos == "Noun":
+            assigned_cls = cls.assign_noun_class(word, para)
+            cls_label = assigned_cls.label if assigned_cls else None
+            has_def = ("def" in para.articles)
+            np = NounPhrase(
+                head_noun=word,
+                assigned_class=assigned_cls,
+                is_definite=True if has_def else None,
+                case_label="Nom" if cls.get_alignment_system(lang) == "nominative_accusative" else "Abs",
+            )
+            surf_form, _ = np.render(lang)
+            return surf_form, word.plain_form, {
+                "pos": "Noun",
+                "class": cls_label,
+                "article": "Def" if has_def else None,
+                "case": "Nom" if cls.get_alignment_system(lang) == "nominative_accusative" else "Abs",
+            }
+        else:
+            return word.form, word.plain_form, {"pos": pos}
 
     @classmethod
     def get_valency_frame(cls, verb: Word) -> ClauseValency:
@@ -564,7 +639,7 @@ class GrammarEngine:
         conj: dict[str, str] = {}
         h = lang.profile.head_directionality
 
-        conj["Infinitive"] = f"/{verb.form}/"
+        conj["Infinitive"] = cls.get_infinitive_form(verb, lang, para)
         t_op = para.temporal_operators[0] if para.temporal_operators else None
 
         for p_key in ["1sg", "2sg", "3sg", "1pl"]:
@@ -586,7 +661,6 @@ class GrammarEngine:
         para = paradigm or cls.discover_grammar_system(lang)
         alignment = cls.get_alignment_system(lang)
         grid: dict[str, str] = {}
-        h = lang.profile.head_directionality
 
         words = list(lang.words.values())
         if not words:
@@ -599,31 +673,46 @@ class GrammarEngine:
         acc_word = spatials[3] if len(spatials) > 3 else spatials[0]
 
         has_plural = (para.number_system != "Transnumeral (No Grammatical Number)" and "pl" in para.number_operators)
-        pl_op = para.number_operators.get("pl") if has_plural else None
+        assigned_cls = cls.assign_noun_class(noun, para)
+        has_def = ("def" in para.articles)
 
-        number_stems = {"Sg": noun}
-        if has_plural and pl_op:
-            pl_noun, is_b = cls.apply_spatial_relator(noun, pl_op, lang, category_type="number")
-            number_stems["Pl"] = pl_noun if is_b else noun
+        # Build table entries through NounPhrase to guarantee correct class and article incorporation
+        cases = [
+            ("Abs" if alignment == "ergative_absolutive" else "Nom", None),
+            ("Erg" if alignment == "ergative_absolutive" else "Acc", erg_word if alignment == "ergative_absolutive" else acc_word),
+            ("Dat", dat_word),
+            ("Loc", loc_word),
+        ]
 
-        p_prep = 1.0 / (1.0 + math.exp(-6.0 * (h - 0.50)))
+        for num_label in (["Sg", "Pl"] if has_plural else ["Sg"]):
+            num_val = 2 if num_label == "Pl" else 1
+            for case_label, case_op in cases:
+                # 1. Bare / Indefinite Declension
+                np_bare = NounPhrase(
+                    head_noun=noun,
+                    assigned_class=assigned_cls,
+                    case_operator=case_op,
+                    case_label=case_label,
+                    numeral_value=num_val,
+                    number_label=num_label,
+                    is_definite=False if has_def else None,
+                )
+                form_bare, _ = np_bare.render(lang)
+                grid[f"{case_label}.{num_label}"] = f"/{form_bare}/"
 
-        def format_case(stem: Word, case_op: Word) -> str:
-            inflected, is_b = cls.apply_spatial_relator(stem, case_op, lang, category_type="case")
-            if is_b:
-                return f"/{inflected.form}/"
-            return f"/{case_op.form} {stem.form}/" if p_prep >= 0.5 else f"/{stem.form} {case_op.form}/"
-
-        for num_label, n_stem in number_stems.items():
-            if alignment == "ergative_absolutive":
-                grid[f"Abs.{num_label}"] = f"/{n_stem.form}/"
-                grid[f"Erg.{num_label}"] = format_case(n_stem, erg_word)
-            else:
-                grid[f"Nom.{num_label}"] = f"/{n_stem.form}/"
-                grid[f"Acc.{num_label}"] = format_case(n_stem, acc_word)
-
-            grid[f"Dat.{num_label}"] = format_case(n_stem, dat_word)
-            grid[f"Loc.{num_label}"] = format_case(n_stem, loc_word)
+                # 2. Definite Declension (if articles exist in dialect)
+                if has_def:
+                    np_def = NounPhrase(
+                        head_noun=noun,
+                        assigned_class=assigned_cls,
+                        case_operator=case_op,
+                        case_label=case_label,
+                        numeral_value=num_val,
+                        number_label=num_label,
+                        is_definite=True,
+                    )
+                    form_def, _ = np_def.render(lang)
+                    grid[f"{case_label}.{num_label} (Def)"] = f"/{form_def}/"
 
         return grid
 

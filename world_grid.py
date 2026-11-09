@@ -1,6 +1,6 @@
 """
 world_grid.py — Continuous 2D Tensor Geography, Urban Agglomeration Gravity,
-and Orographic Rainshadow Deserts.
+Dynamic Linguistic Territory Colors, and Provincial Secession.
 Part of the EvoLangDiff Engine.
 """
 
@@ -21,6 +21,8 @@ def laplacian_2d(f: np.ndarray) -> np.ndarray:
 
 
 class WorldGrid:
+    MAX_POLITIES = 8
+
     def __init__(self, size: int = 64, seed: int = 42):
         self.H = size
         self.W = size
@@ -43,6 +45,11 @@ class WorldGrid:
         self.veg = np.zeros((self.H, self.W), dtype=np.float32)
         self.capacity = np.zeros((self.H, self.W), dtype=np.float32)
 
+        # Geographic Resource Fields
+        self.minerals = np.zeros((self.H, self.W), dtype=np.float32)
+        self.fisheries = np.zeros((self.H, self.W), dtype=np.float32)
+        self.resource_value = np.zeros((self.H, self.W), dtype=np.float32)
+
         self.pop = np.zeros((self.H, self.W), dtype=np.float32)
         self.infrastructure = np.zeros((self.H, self.W), dtype=np.float32)
         self.prestige = np.zeros((self.H, self.W), dtype=np.float32)
@@ -55,6 +62,11 @@ class WorldGrid:
 
         self.phonetic_bias = np.zeros((self.H, self.W, 8), dtype=np.float32)
         self.permeability = np.ones((self.H, self.W), dtype=np.float32)
+
+        # Continuous Societal Hegemony Tensor: [H, W, K]
+        self.hegemony = np.zeros((self.H, self.W, self.MAX_POLITIES), dtype=np.float32)
+        self.polity_centers: list[dict] = []
+        self.events: list[str] = []
 
         self._init_geography()
         self._init_demographics()
@@ -103,7 +115,6 @@ class WorldGrid:
         pet = np.maximum(0.08, (np.maximum(0.0, self.temp) ** 1.30) * 1.40)
         aridity_idx = self.hum / pet
 
-        # Continuous logistic vegetation function
         climax_veg = 0.95 / (1.0 + np.exp(-6.0 * (aridity_idx - 0.45)))
         treeline = np.exp(-3.50 * (np.maximum(0.0, self.elev - 0.35) ** 2))
         thermal_growth = 1.0 / (1.0 + np.exp(-8.0 * (self.temp - 0.22)))
@@ -115,10 +126,13 @@ class WorldGrid:
         grain_yield = np.exp(-arable_d2) * np.maximum(0.0, 1.0 - self.elev * 1.5) * (1.0 + 0.45 * np.log1p(self.infrastructure))
 
         is_coastal_land = (self.elev > 0.0) & (dist_to_coast < 0.12)
-        coastal_marine = np.where(is_coastal_land, (0.12 - dist_to_coast) * 22.0, 0.0)
-        alpine_tax = np.exp(-4.0 * np.maximum(0.0, self.elev - 0.25))
+        self.fisheries = np.where(is_coastal_land, (0.12 - dist_to_coast) * 22.0, 0.0)
+        self.minerals = np.where((self.elev > 0.35) & (self.elev < 0.95), (self.elev - 0.35) * 3.5, 0.0)
 
-        total_food = (grain_yield * 2.5 + coastal_marine * 2.8) * alpine_tax
+        alpine_tax = np.exp(-4.0 * np.maximum(0.0, self.elev - 0.25))
+        total_food = (grain_yield * 2.5 + self.fisheries * 2.8) * alpine_tax
+        self.resource_value = np.where(self.elev <= 0.0, 0.0, (grain_yield * 1.5 + self.fisheries * 1.8 + self.minerals * 1.4))
+
         land_capacity = np.clip(0.08 + 2.50 * np.log1p(total_food), 0.05, 15.0)
         self.capacity = np.where(self.elev <= 0.0, 0.0, land_capacity)
 
@@ -131,6 +145,145 @@ class WorldGrid:
         dx = self.X_grid - self.X_grid[cradle_y, cradle_x]
         self.pop = 1.20 * np.exp(-(dx ** 2 + dy ** 2) / 0.002).astype(np.float32)
         self.infrastructure[cradle_y, cradle_x] = 2.0
+
+        self.polity_centers = [{
+            "id": 0,
+            "name": "Ancestral Cradle",
+            "x": int(cradle_x),
+            "y": int(cradle_y),
+            "age": 0,
+            "prestige": 2.0,
+            "color": [210, 70, 70],
+        }]
+        self.hegemony[cradle_y, cradle_x, 0] = 5.0
+
+    def _update_societies(self, dt: float) -> None:
+        land_mask = (self.elev > 0.0) & (self.pop > 0.20)
+        score_matrix = np.where(land_mask, self.prestige * (1.0 + 0.3 * np.log1p(self.infrastructure)), 0.0)
+
+        # 1. Prune completely absorbed/extinct polities
+        active_polities = []
+        for p in self.polity_centers:
+            pid = p["id"]
+            tot_h = float(np.sum(self.hegemony[..., pid]))
+            if tot_h > 0.5 or p["id"] == 0:
+                active_polities.append(p)
+            else:
+                self.hegemony[..., pid] = 0.0
+                self.events.append(f"Epoch {self.epoch}: {p['name']} has fallen into oblivion.")
+        self.polity_centers = active_polities
+
+        # 2. Dynamic Linguistic Secession & Emergent Breakaway Polities
+        old_hegemony_owners = np.argmax(self.hegemony, axis=-1)
+
+        # Check for provincial fracture in distant overextended territory
+        if self.epoch % 20 == 0 and len(self.polity_centers) < self.MAX_POLITIES:
+            for p in list(self.polity_centers):
+                pid = p["id"]
+                cap_x, cap_y = p["x"], p["y"]
+                cap_typo = self.typology[cap_y, cap_x]
+
+                # Find territory owned by this polity with high linguistic divergence
+                owned_mask = (old_hegemony_owners == pid) & (self.pop > 0.40) & (self.elev > 0.0)
+                if not np.any(owned_mask):
+                    continue
+
+                diff_h = np.abs(self.typology[..., 0] - cap_typo[0])
+                diff_s = np.abs(self.typology[..., 1] - cap_typo[1])
+                diff_sig = np.abs(self.typology[..., 2] - cap_typo[2])
+                ling_divergence = np.where(owned_mask, diff_h + diff_s + diff_sig, 0.0)
+
+                # Distance from capital adds administrative friction
+                dy, dx = np.ogrid[:self.H, :self.W]
+                dist_cells = np.sqrt((dx - cap_x) ** 2 + (dy - cap_y) ** 2)
+                rebellion_potential = ling_divergence * (dist_cells / 16.0)
+
+                if np.max(rebellion_potential) > 0.42:
+                    ry, rx = np.unravel_index(np.argmax(rebellion_potential), rebellion_potential.shape)
+                    # Assign unused ID
+                    used_ids = {pol["id"] for pol in self.polity_centers}
+                    new_id = next(i for i in range(self.MAX_POLITIES) if i not in used_ids)
+                    
+                    reb_typo = self.typology[ry, rx]
+                    # Dynamic color computed directly from local linguistic typology: R=h, G=s, B=sigma
+                    reb_color = [
+                        int(np.clip(reb_typo[0] * 220 + 25, 20, 245)),
+                        int(np.clip(reb_typo[1] * 210 + 35, 20, 245)),
+                        int(np.clip(reb_typo[2] * 220 + 25, 20, 245)),
+                    ]
+
+                    tier_names = ["Secessionist League", "Free Realm", "Breakaway Kingdom", "Frontier Domain"]
+                    name_tier = tier_names[new_id % len(tier_names)]
+                    new_name = f"{name_tier} of ({rx},{ry})"
+
+                    self.polity_centers.append({
+                        "id": new_id,
+                        "name": new_name,
+                        "x": int(rx),
+                        "y": int(ry),
+                        "age": self.epoch,
+                        "prestige": float(self.prestige[ry, rx]) * 1.2,
+                        "color": reb_color,
+                    })
+
+                    # Carve out local breakaway hegemony
+                    self.hegemony[ry, rx, new_id] = 6.0
+                    self.hegemony[ry, rx, pid] *= 0.2
+                    self.events.append(f"Epoch {self.epoch}: {new_name} seceded from {p['name']} due to linguistic divergence!")
+                    break
+
+        # 3. Lotka-Volterra Territorial Competition
+        for p in self.polity_centers:
+            pid = p["id"]
+            px, py = p["x"], p["y"]
+            p["prestige"] = float(self.prestige[py, px])
+
+            # Update society's territorial color dynamically from current capital typology
+            cur_t = self.typology[py, px]
+            p["color"] = [
+                int(np.clip(cur_t[0] * 220 + 25, 20, 245)),
+                int(np.clip(cur_t[1] * 210 + 35, 20, 245)),
+                int(np.clip(cur_t[2] * 220 + 25, 20, 245)),
+            ]
+
+            source = np.zeros((self.H, self.W), dtype=np.float32)
+            source[py, px] = max(1.0, float(self.prestige[py, px]) * 1.5)
+
+            resource_pull = 0.03 * self.resource_value * self.hegemony[..., pid]
+            diff_flux = 0.04 * self.permeability * laplacian_2d(self.hegemony[..., pid])
+
+            # Imperial Overextension: Decay increases with distance from capital
+            dy, dx = np.ogrid[:self.H, :self.W]
+            dist_decay = 1.0 + 0.04 * np.sqrt((dx - px) ** 2 + (dy - py) ** 2)
+            decay = 0.015 * dist_decay * self.hegemony[..., pid]
+
+            # Warfare displacement
+            warfare_loss = np.zeros((self.H, self.W), dtype=np.float32)
+            for rival in self.polity_centers:
+                rid = rival["id"]
+                if rid == pid:
+                    continue
+                rival_prestige = rival["prestige"]
+                if rival_prestige > p["prestige"] + 0.3:
+                    warfare_loss += 0.05 * (rival_prestige - p["prestige"]) * self.hegemony[..., pid] * self.hegemony[..., rid]
+
+            self.hegemony[..., pid] = np.clip(
+                self.hegemony[..., pid] + (diff_flux + source + resource_pull - decay - warfare_loss) * dt,
+                0.0, 50.0
+            )
+
+        for pid in range(self.MAX_POLITIES):
+            self.hegemony[..., pid] = np.where(self.elev <= 0.0, 0.0, self.hegemony[..., pid])
+
+        # Log conquest events
+        new_hegemony_owners = np.argmax(self.hegemony, axis=-1)
+        flips = (old_hegemony_owners != new_hegemony_owners) & (self.elev > 0.0) & (self.pop > 0.50)
+        if np.any(flips) and self.epoch % 15 == 0:
+            fy, fx = np.unravel_index(np.argmax(flips), flips.shape)
+            invader_id = new_hegemony_owners[fy, fx]
+            invader = next((p for p in self.polity_centers if p["id"] == invader_id), None)
+            if invader:
+                self.events.append(f"Epoch {self.epoch}: {invader['name']} annexed resource province at ({fx}, {fy}).")
 
     def step(self, dt: float = 1.0) -> None:
         self.epoch += 1
@@ -163,6 +316,11 @@ class WorldGrid:
             self.pop * (1.0 + 0.40 * np.log1p(self.infrastructure))
         )
 
+        self._update_societies(dt)
+
+        grad_hx, grad_hy = np.gradient(np.max(self.hegemony, axis=-1))
+        imperial_turnover = np.sqrt(grad_hx ** 2 + grad_hy ** 2)
+
         dist_to_coast = np.minimum(self.X_grid, np.minimum(np.abs(self.X_grid - 0.76), 1.0 - self.X_grid))
         is_coastal = (dist_to_coast < 0.10)
 
@@ -190,7 +348,9 @@ class WorldGrid:
         self.attention = 7.0 * (self.attention / np.maximum(0.1, norm_A))
 
         h_target = 0.50 + 0.25 * np.tanh((self.attention[..., 6] - self.attention[..., 5]) * 0.5)
-        s_target = 0.15 + 0.70 / (1.0 + np.exp(-2.5 * (np.tanh(self.pop * 0.5) - np.maximum(0.0, self.elev) * 0.5)))
+        s_base = 0.15 + 0.70 / (1.0 + np.exp(-2.5 * (np.tanh(self.pop * 0.5) - np.maximum(0.0, self.elev) * 0.5)))
+        s_target = np.clip(s_base - 0.30 * np.tanh(imperial_turnover * 2.0), 0.12, 0.88)
+
         canopy = self.veg * 0.60 + self.hum * 0.40
         aridity = np.maximum(0.0, 1.0 - self.hum)
         cold = np.maximum(0.0, 0.45 - self.temp) * 1.5
@@ -204,17 +364,13 @@ class WorldGrid:
                 0.12, 0.88
             )
 
-        # Continuous Biome Acoustic Bias Vector
         rho_air = np.exp(-0.90 * np.maximum(0.0, self.elev))
-        drying = np.maximum(0.0, 1.0 - self.hum)
-
         self.phonetic_bias[..., 1] = np.clip(0.18 * (self.veg - 0.50), -0.25, 0.25)
         self.phonetic_bias[..., 4] = np.clip(0.25 * (self.hum - 0.45) + 0.15 * (self.temp - 0.50), -0.25, 0.25)
         self.phonetic_bias[..., 5] = np.clip(0.15 * (self.attention[..., 5] - self.attention[..., 0]), -0.25, 0.25)
 
-        # Smooth continuous alpine laryngeal ejective driver
-        ejective_drive = 1.0 / (1.0 + np.exp(12.0 * (rho_air - 0.75))) * (1.0 / (1.0 + np.exp(8.0 * (self.hum - 0.40))))
-        self.phonetic_bias[..., 7] = np.clip(-0.65 * ejective_drive, -0.70, 0.0)
+        ejective_drive = 1.0 / (1.0 + np.exp(12.0 * (rho_air - 0.70))) * (1.0 / (1.0 + np.exp(8.0 * (self.hum - 0.35))))
+        self.phonetic_bias[..., 7] = np.clip(-0.50 * ejective_drive, -0.60, 0.0)
 
         for d in range(8):
             lap_bias = 0.015 * self.permeability * laplacian_2d(self.phonetic_bias[..., d])
@@ -229,6 +385,21 @@ class WorldGrid:
     def get_cell_state(self, x: int, y: int) -> dict:
         r = int(np.clip(y, 0, self.H - 1))
         c = int(np.clip(x, 0, self.W - 1))
+
+        h_vals = self.hegemony[r, c]
+        tot_h = float(np.sum(h_vals))
+        if tot_h > 0.01:
+            dom_id = int(np.argmax(h_vals))
+            dom_share = float(h_vals[dom_id] / tot_h)
+            dom_polity = next((p for p in self.polity_centers if p["id"] == dom_id), None)
+            dom_name = dom_polity["name"] if dom_polity else f"Polity {dom_id}"
+            dom_color = dom_polity["color"] if dom_polity else [150, 150, 150]
+        else:
+            dom_id = -1
+            dom_share = 0.0
+            dom_name = "Independent Tribes (Ungoverned)"
+            dom_color = [100, 100, 100]
+
         return {
             "x": c, "y": r,
             "elevation": round(float(self.elev[r, c]), 3),
@@ -245,4 +416,11 @@ class WorldGrid:
             "syllable_complexity": round(float(self.typology[r, c, 2]), 3),
             "phonetic_bias": [round(float(v), 3) for v in self.phonetic_bias[r, c]],
             "permeability": round(float(self.permeability[r, c]), 3),
+            "polity": {
+                "dominant_id": dom_id,
+                "name": dom_name,
+                "control_percentage": round(dom_share * 100.0, 1),
+                "is_capital": any(p["x"] == c and p["y"] == r for p in self.polity_centers),
+                "color": dom_color,
+            }
         }

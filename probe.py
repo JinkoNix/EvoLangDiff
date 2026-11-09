@@ -1,5 +1,6 @@
 """
-probe.py — Spatial Dialect Realizer and Telemetry Observer.
+probe.py — Spatial Dialect Realizer, Societal Strata Observer,
+and Telemetry Query Layer.
 Part of the EvoLangDiff Engine.
 """
 
@@ -23,64 +24,8 @@ from word import Word, Morpheme, LexicalCategory
 from language import Language, LanguageProfile
 from grammar import GrammarEngine
 from translator import SemanticTranslator
-from semantics import SemanticVector, DerivationRecord, DerivationType, LoanProvenance
+from semantics import SemanticVector, SemanticSpace, DerivationRecord, DerivationType, LoanProvenance
 from world_grid import WorldGrid
-
-
-CONCEPT_DOMAINS = {
-    "nature": [
-        ((1.0, 0.0, 0.7, 0.4, 0.4, 0.1, 0.3), "water"),
-        ((0.9, 0.1, 0.4, 0.7, 0.9, 0.1, 0.3), "fire"),
-        ((1.0, 0.0, 0.6, 0.7, 0.1, 0.1, 0.7), "earth"),
-        ((1.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.1), "stone"),
-        ((1.0, 0.4, 0.7, 0.6, 0.2, 0.1, 0.4), "tree"),
-        ((0.8, 0.0, 0.9, 1.0, 0.6, 0.1, 0.9), "sun"),
-        ((0.8, 0.0, 0.6, 0.6, 0.3, 0.1, 0.7), "moon"),
-        ((0.6, 0.0, 0.6, 0.5, 0.8, 0.1, 0.8), "wind"),
-        ((0.8, 0.0, 0.6, 0.4, 0.9, 0.1, 0.6), "rain"),
-        ((0.9, 0.0, 0.4, 0.6, 0.2, 0.1, 0.4), "ice"),
-    ],
-    "body": [
-        ((0.9, 0.8, 0.6, 0.7, 0.4, 0.3, 0.2), "head"),
-        ((1.0, 0.8, 0.6, 0.6, 0.6, 0.4, 0.2), "hand"),
-        ((0.9, 0.8, 0.6, 0.4, 0.5, 0.3, 0.2), "eye"),
-        ((0.7, 0.9, 0.7, 0.6, 0.4, 0.6, 0.2), "heart"),
-        ((0.9, 0.6, 0.4, 0.7, 0.5, 0.3, 0.2), "blood"),
-        ((1.0, 0.5, 0.5, 0.8, 0.1, 0.1, 0.2), "bone"),
-        ((1.0, 0.9, 0.6, 0.6, 0.5, 0.4, 0.5), "body"),
-    ],
-    "action": [
-        ((0.5, 0.8, 0.6, 0.6, 0.8, 0.4, 0.3), "make"),
-        ((0.6, 0.7, 0.5, 0.4, 0.7, 0.2, 0.5), "walk"),
-        ((0.6, 0.8, 0.3, 0.7, 0.8, 0.4, 0.4), "hunt"),
-        ((0.4, 0.8, 0.6, 0.4, 0.5, 0.3, 0.4), "see"),
-        ((0.4, 0.9, 0.6, 0.4, 0.7, 1.0, 0.3), "speak"),
-        ((0.8, 0.8, 0.8, 0.5, 0.6, 0.3, 0.2), "eat"),
-        ((0.7, 0.8, 0.2, 0.85, 0.9, 0.2, 0.3), "strike"),
-        ((0.6, 0.8, 0.85, 0.6, 0.6, 0.8, 0.4), "heal"),
-        ((0.5, 0.8, 0.1, 0.4, 0.4, 0.3, 0.5), "die"),
-        ((0.5, 0.7, 0.5, 0.4, 0.4, 0.3, 0.5), "journey"),
-    ],
-    "quality": [
-        ((0.2, 0.3, 0.9, 0.6, 0.3, 0.7, 0.5), "good"),
-        ((0.2, 0.3, 0.1, 0.6, 0.4, 0.3, 0.5), "bad"),
-        ((0.4, 0.1, 0.6, 0.9, 0.3, 0.1, 0.9), "big"),
-        ((0.4, 0.1, 0.5, 0.1, 0.3, 0.1, 0.1), "small"),
-        ((0.6, 0.0, 0.7, 0.8, 0.6, 0.1, 0.3), "hot"),
-        ((0.7, 0.0, 0.4, 0.6, 0.2, 0.1, 0.3), "cold"),
-        ((0.3, 0.0, 0.2, 0.6, 0.2, 0.1, 0.7), "dark"),
-        ((0.3, 0.0, 0.9, 0.6, 0.4, 0.1, 0.8), "bright"),
-    ],
-    "social": [
-        ((0.9, 1.0, 0.6, 0.5, 0.5, 0.7, 0.3), "person"),
-        ((0.9, 1.0, 0.85, 0.4, 0.4, 0.95, 0.2), "mother"),
-        ((0.9, 1.0, 0.75, 0.75, 0.6, 0.85, 0.3), "father"),
-        ((0.8, 1.0, 0.8, 0.4, 0.4, 0.9, 0.4), "friend"),
-        ((0.8, 1.0, 0.2, 0.8, 0.7, 0.1, 0.4), "enemy"),
-        ((0.8, 1.0, 0.7, 0.5, 0.5, 0.9, 0.7), "tribe"),
-        ((0.9, 0.9, 0.5, 0.6, 0.7, 0.2, 0.4), "animal"),
-    ]
-}
 
 
 class DialectProbe:
@@ -133,24 +78,34 @@ class DialectProbe:
         prestige = cell["prestige"]
         attn = np.asarray(cell["attention"], dtype=np.float32)
 
-        biomes = [
-            ("Alpine Highlands", math.exp(-((alt - 0.75) ** 2) / 0.08)),
-            ("Coastal Littoral", math.exp(-((hum - 0.85) ** 2) / 0.06)),
-            ("Forest Basin",     math.exp(-((veg - 0.80) ** 2) / 0.06)),
-            ("Arid Steppe",      math.exp(-((temp - 0.75) ** 2 + (hum - 0.15) ** 2) / 0.08)),
-            ("Cradle Valley",    math.exp(-((alt - 0.22) ** 2 + (veg - 0.45) ** 2) / 0.08)),
-        ]
-        reg_name = max(biomes, key=lambda b: b[1])[0]
+        polity_info = cell["polity"]
+        dom_name = polity_info["name"]
+        dom_share = polity_info["control_percentage"] / 100.0
+
+        if alt > 0.45: reg_type = "Highlands"
+        elif hum > 0.65: reg_type = "Littoral"
+        elif veg > 0.55: reg_type = "Basin"
+        elif temp > 0.50 and hum < 0.28: reg_type = "Steppe"
+        else: reg_type = "Valley"
+
+        if polity_info["is_capital"]:
+            dialect_title = f"{dom_name} [Imperial Core]"
+        elif dom_share > 0.60:
+            dialect_title = f"{dom_name} ({reg_type} Province)"
+        elif dom_share > 0.35:
+            dialect_title = f"{dom_name} ({reg_type} Marchland)"
+        else:
+            dialect_title = f"Independent {reg_type} Tribes"
 
         profile = LanguageProfile(
-            name=f"{reg_name}_({x},{y})",
+            name=f"{dialect_title}_({x},{y})",
             head_directionality=h,
             synthesis_index=s_idx,
             syllable_complexity=s_comp,
             max_transition_cost=1.80 + 3.60 * s_comp,
         )
 
-        dialect_lang = Language(name=f"{reg_name}_({x},{y})", profile=profile, population=pop)
+        dialect_lang = Language(name=dialect_title, profile=profile, population=pop)
         dialect_lang.cultural_attention = list(attn)
 
         base_n = min(12, len(proto_roots)) if epoch < 10 else len(proto_roots)
@@ -164,7 +119,7 @@ class DialectProbe:
 
         living_words: list[Word] = [w.copy() for w in proto_roots[:min(len(proto_roots), render_vocab_limit)]]
 
-        # Horizontal loanwords
+        # 1. Deduplicated Horizontal Loanwords
         loan_sources = []
         for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
             nx, ny = x + dx, y + dy
@@ -175,13 +130,25 @@ class DialectProbe:
 
         num_loans = int(render_vocab_limit * 0.12) if (loan_sources and render_vocab_limit > 50) else 0
         loan_words = []
+        borrowed_donor_ids: set[int] = set()
+
         for l_idx in range(num_loans):
             source = rng.choice(loan_sources)
-            donor_root = rng.choice(proto_roots)
-            p_nativized = [
-                Phoneme(np.clip(p.g + bias * 0.5, 0.0, 1.0), duration=p.duration)
-                for p in donor_root.phonemes
-            ]
+            available_donors = [w for w in proto_roots if w.id not in borrowed_donor_ids]
+            if not available_donors:
+                break
+            donor_root = rng.choice(available_donors)
+            borrowed_donor_ids.add(donor_root.id)
+
+            p_nativized = []
+            for p in donor_root.phonemes:
+                p_bias = bias.copy()
+                if p.is_vowel and p_bias[7] < 0.0:
+                    p_bias[7] = 0.0
+                p_nativized.append(
+                    Phoneme(np.clip(p.g + p_bias * 0.35, 0.0, 1.0), duration=p.duration)
+                )
+
             repaired_loan = repair_phonemes(p_nativized, profile=profile)
             if repaired_loan:
                 w_loan = Word(
@@ -206,52 +173,40 @@ class DialectProbe:
 
         living_words.extend(loan_words)
 
-        # Compounding
-        domain_keys = list(CONCEPT_DOMAINS.keys())
+        # 2. Autonomous Compounding
         num_neologisms = max(0, render_vocab_limit - len(living_words))
-        domain_pools: dict[str, list[Word]] = {k: [] for k in domain_keys}
-
-        for w in living_words:
-            if w.category != LexicalCategory.CONTENT_OPEN:
-                continue
-            pos = SemanticTranslator.get_pos(w.vector)
-            if pos == "Verb": domain_pools["action"].append(w)
-            elif pos == "Adjective": domain_pools["quality"].append(w)
-            elif w.vector.animacy >= 0.70: domain_pools["social"].append(w)
-            elif w.vector.concreteness >= 0.75: domain_pools["nature"].append(w)
-            else: domain_pools["body"].append(w)
-
-        content_all = [w for w in living_words if w.category == LexicalCategory.CONTENT_OPEN]
-        for k in domain_keys:
-            if not domain_pools[k]:
-                domain_pools[k] = list(content_all)
-
-        frame_rules = [
-            ("nature", "action"), ("body", "nature"), ("social", "action"),
-            ("quality", "nature"), ("nature", "quality"), ("social", "social"), ("action", "nature")
-        ]
+        content_candidates = [w for w in living_words if w.category == LexicalCategory.CONTENT_OPEN]
         t_drift = min(4.5, epoch / 500.0)
 
-        for neo_idx in range(num_neologisms):
-            d1_name, d2_name = rng.choice(frame_rules)
-            w1 = rng.choice(domain_pools[d1_name] or content_all)
-            w2 = rng.choice(domain_pools[d2_name] or content_all)
-            if w1.id == w2.id:
-                continue
-            blended_vec = w1.vector.blend(w2.vector, weight=rng.uniform(0.42, 0.58))
-            comp_word = dialect_lang.compound_concepts(
-                w1=w1, w2=w2, blended_vec=blended_vec, new_id=2000 + neo_idx,
-                epoch=epoch, alt=alt, hum=hum, temp=temp, t_drift=t_drift, rng=rng
-            )
-            if comp_word:
-                living_words.append(comp_word)
+        if len(content_candidates) >= 2 and num_neologisms > 0:
+            weights = [math.sqrt(w.usage_frequency) for w in content_candidates]
+            tot_w = sum(weights) or 1.0
+            probs = [w / tot_w for w in weights]
 
-        # Emergent Tonogenesis: condition of monosyllabicity and coda loss
+            for neo_idx in range(num_neologisms):
+                w1, w2 = rng.choices(content_candidates, weights=probs, k=2)
+                if w1.id == w2.id:
+                    continue
+
+                blended_vec = w1.vector.blend(w2.vector, weight=rng.uniform(0.40, 0.60))
+                comp_word = dialect_lang.compound_concepts(
+                    w1=w1, w2=w2, blended_vec=blended_vec, new_id=2000 + neo_idx,
+                    epoch=epoch, alt=alt, hum=hum, temp=temp, t_drift=t_drift, rng=rng
+                )
+                if comp_word:
+                    living_words.append(comp_word)
+
+        # 3. Superstrate Stratum Integration
+        if dom_share > 0.50 and not polity_info["is_capital"]:
+            for w in living_words:
+                if w.vector.potency > 0.55 or w.vector.sociality > 0.55:
+                    w.usage_frequency *= (1.0 + dom_share * 0.5)
+
+        # 4. Emergent Tonogenesis
         coda_drain_pressure = 1.0 / (1.0 + math.exp(6.0 * (s_comp - 0.40)))
         analytic_pressure = 1.0 / (1.0 + math.exp(6.0 * (s_idx - 0.40)))
         has_phonemic_tone = (coda_drain_pressure * 0.6 + analytic_pressure * 0.4) >= 0.55
 
-        # Extract vowel repelling pool across dialect sample
         vowel_pool: list[np.ndarray] = []
         for w in living_words[:40]:
             for p in w.phonemes:
@@ -268,8 +223,10 @@ class DialectProbe:
             if len(X_w0) == 0:
                 continue
 
+            w0_cost = w0.energetic_cost(profile=profile)
             valence_intensity = abs(w0.vector.valence - 0.50) + (w0.vector.potency * 0.4)
             mutated_phonemes = []
+
             for i, p_seg in enumerate(w0.phonemes):
                 adj = w0.phonemes[i - 1] if i > 0 else None
                 m_seg = relax_gesture_gradient(
@@ -283,6 +240,7 @@ class DialectProbe:
                     temp=temp,
                     t_drift=t_drift,
                     rng=rng,
+                    word_cost=w0_cost,
                 )
                 mutated_phonemes.append(m_seg)
 
@@ -293,6 +251,7 @@ class DialectProbe:
                 hum=hum,
                 temp=temp,
                 profile=profile,
+                word_cost=w0_cost,
             )
 
             X_trans = np.stack([p.vector for p in eroded_phonemes], axis=0)
@@ -321,6 +280,10 @@ class DialectProbe:
 
             dialect_lang.add_word(w_loc)
             transformed_words.append(w_loc)
+
+        # 5. Replicator Dynamics: Fitter words actively devour unoptimized words
+        dialect_lang.compete_lexicon(cohort_sample=transformed_words[:25])
+        transformed_words = [w for w in transformed_words if w.id in dialect_lang.words]
 
         mean_diss = dissonance_acc / max(1, len(living_words))
         intelligibility = float(np.clip(math.exp(-1.80 * mean_diss) * (0.25 + 0.75 * cell["permeability"]), 0.0, 1.0))
@@ -364,32 +327,43 @@ class DialectProbe:
 
         paradigm = GrammarEngine.discover_grammar_system(dialect_lang)
 
-        content_nouns = [w for w in transformed_words if w.category == LexicalCategory.CONTENT_OPEN and w.vector.concreteness >= 0.60]
-        content_verbs = [w for w in transformed_words if w.category == LexicalCategory.CONTENT_OPEN and w.vector.dynamism >= 0.50]
-        sample_noun = content_nouns[0] if content_nouns else transformed_words[0]
-        sample_verb = content_verbs[0] if content_verbs else (content_nouns[1] if len(content_nouns) > 1 else transformed_words[0])
+        # 6. Strict Part-of-Speech Selection
+        true_nouns = [
+            w for w in transformed_words
+            if w.category == LexicalCategory.CONTENT_OPEN and SemanticTranslator.get_pos(w.vector) == "Noun"
+        ]
+        true_verbs = [
+            w for w in transformed_words
+            if w.category == LexicalCategory.CONTENT_OPEN and SemanticTranslator.get_pos(w.vector) == "Verb"
+        ]
+
+        sample_noun = true_nouns[0] if true_nouns else min(transformed_words, key=lambda w: w.vector.distance_to(SemanticSpace.WATER))
+        sample_verb = true_verbs[0] if true_verbs else min(transformed_words, key=lambda w: w.vector.distance_to(SemanticSpace.MAKE))
 
         noun_table = GrammarEngine.get_noun_declension_table(sample_noun, dialect_lang, paradigm=paradigm)
         verb_table = GrammarEngine.get_verb_conjugation_table(sample_verb, dialect_lang, paradigm=paradigm)
 
         lexicon_payload = []
         cohort_sample = transformed_words[:32]
-        for w_loc, w0 in zip(transformed_words, living_words):
+        for w_loc in transformed_words:
             gloss = SemanticTranslator.translate(w_loc, dialect_lang)
             if w_loc.derivation.derivation_type == DerivationType.LOANWORD and w_loc.derivation.provenance:
                 gloss = f"{gloss} [Loan: {w_loc.derivation.provenance.source_language}]"
 
-            # Energy now integrates ambiguity and modulation costs
+            surf_form, _, grammar_meta = GrammarEngine.get_citation_presentation(w_loc, dialect_lang, paradigm=paradigm)
             total_cost = w_loc.energetic_cost(profile=profile, cohort_sample=cohort_sample)
 
             lexicon_payload.append({
                 "id": w_loc.id,
-                "form": w_loc.form,
+                "form": surf_form,
+                "root_form": w_loc.form,
                 "plain": w_loc.plain_form,
                 "gloss": gloss,
-                "proto_form": w0.plain_form,
-                "pos": GrammarEngine.get_part_of_speech(w_loc),
+                "proto_form": w_loc.plain_form,
+                "pos": grammar_meta.get("pos", "Particle"),
+                "grammar_info": grammar_meta,
                 "energy_cost": total_cost,
+                "usage_frequency": round(float(w_loc.usage_frequency), 2),
             })
 
         pronouns_display = {k: f"/{v.form}/" for k, v in paradigm.pronouns.items()}
@@ -397,10 +371,18 @@ class DialectProbe:
         human_pop = int(round(pop * 250000))
         tone_label = f"Tonal ({len(tone_inventory)} Tones)" if has_phonemic_tone else "Non-Tonal (Stress-Accent)"
 
+        assigned_sample_cls = GrammarEngine.assign_noun_class(sample_noun, paradigm)
+        noun_title_meta = f"«{SemanticTranslator.translate(sample_noun, dialect_lang)}» /{sample_noun.form}/"
+        if assigned_sample_cls:
+            noun_title_meta += f" [{assigned_sample_cls.label}]"
+
+        verb_infinitive = GrammarEngine.get_infinitive_form(sample_verb, dialect_lang, paradigm)
+        verb_title_meta = f"«{SemanticTranslator.translate(sample_verb, dialect_lang)}» {verb_infinitive}"
+
         return {
             "is_water": False,
             "coordinates": (cell["x"], cell["y"]),
-            "dialect_name": reg_name,
+            "dialect_name": dialect_title,
             "epoch": epoch,
             "geography": {
                 "elevation": cell["elevation"],
@@ -416,6 +398,7 @@ class DialectProbe:
                 "infrastructure": cell["infrastructure"],
                 "prestige": prestige,
             },
+            "polity": polity_info,
             "cultural_attention": cell["attention"],
             "typology": {
                 "word_order": profile.dominant_word_order,
@@ -426,6 +409,7 @@ class DialectProbe:
                 "alignment": GrammarEngine.get_alignment_system(dialect_lang),
                 "article_system": paradigm.article_system,
                 "number_system": paradigm.number_system,
+                "noun_classes": [cls_obj.label for cls_obj in paradigm.noun_classes],
                 "tone_system": tone_label,
             },
             "phonology": {
@@ -442,12 +426,14 @@ class DialectProbe:
             "noun_paradigm": {
                 "noun": sample_noun.form,
                 "noun_gloss": SemanticTranslator.translate(sample_noun, dialect_lang),
+                "title_display": noun_title_meta,
                 "alignment": GrammarEngine.get_alignment_system(dialect_lang),
                 "table": noun_table,
             },
             "verb_paradigm": {
                 "verb": sample_verb.form,
                 "verb_gloss": SemanticTranslator.translate(sample_verb, dialect_lang),
+                "title_display": verb_title_meta,
                 "table": verb_table,
             },
             "pronouns": pronouns_display,
