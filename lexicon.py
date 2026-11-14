@@ -1,5 +1,7 @@
 """
-lexicon.py — Continuous Thermodynamic Neologisms, Compression, and Information Dynamics.
+lexicon.py — Productive Derivational Morphology, Biomechanical Root Synthesis,
+and Demographically Driven Semantic Expansion.
+Velaric double-closures (clicks) restricted to small, low-noise foraging communities.
 Part of the EvoLangDiff Engine.
 """
 
@@ -10,100 +12,73 @@ import random
 from typing import Sequence
 import numpy as np
 
-from phonetics import (
-    Phoneme,
-    repair_phonemes,
-    apply_prosody,
-    sensory_distance,
-    continuous_sonority,
-)
+from phonetics import Phoneme, repair_phonemes, apply_prosody
 from word import Word, Morpheme, ClineStage, LexicalCategory
 from semantics import SemanticVector, SemanticSpace, DerivationRecord, DerivationType
-from gpu_accelerator import GPUSemanticEngine
-
-
-def _extract_metrical_head(word: Word, mode: str = "head") -> list[Phoneme]:
-    syls = word.syllables
-    if not syls or len(syls) <= 2:
-        return list(word.phonemes)
-
-    stressed_idx = next((i for i, s in enumerate(syls) if s.stressed), 0)
-    if mode == "tail":
-        extracted_syls = syls[-2:] if len(syls) >= 2 else syls[-1:]
-    elif mode == "head":
-        extracted_syls = syls[:2]
-    else:
-        if stressed_idx + 1 < len(syls):
-            extracted_syls = syls[stressed_idx:stressed_idx + 2]
-        elif stressed_idx > 0:
-            extracted_syls = syls[stressed_idx - 1:stressed_idx + 1]
-        else:
-            extracted_syls = syls[:2]
-
-    extracted: list[Phoneme] = []
-    for s in extracted_syls:
-        extracted.extend(s.to_phonemes())
-    return extracted if extracted else list(word.phonemes)
 
 
 class LexiconGenerator:
-    """
-    Synthesizes gestures via continuous Gaussian Mixture sampling across anatomical attractors
-    conditioned on thermodynamic barometric pressure.
-    """
-
     @classmethod
     def synthesize_constriction_gesture(cls, env=None) -> Phoneme:
+        """
+        Samples continuous 9D tract space.
+        Clicks are strictly limited: they require an isolated foraging band
+        in open, silent savannah with low population, and incur a heavy motor penalty.
+        """
         alt = getattr(env, "altitude", 0.0) if env else 0.0
         hum = getattr(env, "humidity", 0.5) if env else 0.5
-        rho_air = math.exp(-0.90 * max(0.0, alt))
+        veg = getattr(env, "vegetation", 0.3) if env else 0.3
+        pop = getattr(env, "population", 0.5) if env else 0.5
+        rho = math.exp(-0.85 * max(0.0, alt))
 
-        # Base neutral tract: tip relaxed on floor (g2=1.0)
-        g = np.array([1.0, 0.0, 1.0, 0.25, 0.80, 0.50, 0.0, 0.40], dtype=np.float32)
-        organ_roll = random.random()
+        g = np.random.uniform(0.0, 1.0, size=9).astype(np.float32)
+        g[1] = 0.0  # Lip protrusion default
+        g[6] = 0.0  # Velum closed default
+        g[8] = 0.50 # Resting neutral larynx
 
-        if organ_roll < 0.32:  # Labials (p, b, m, f, v)
-            manner = random.random()
-            if manner < 0.55:
-                g[0], g[7] = 0.00, 0.40 if random.random() < 0.50 else 0.60  # p, b
-            elif manner < 0.80:
-                g[0], g[6], g[7] = 0.00, 0.60, 0.40                          # m
+        # Clicks are an extraordinary, rare innovation:
+        # Require low population (foragers), flat open terrain, low vegetation, and low noise
+        open_plain_suitability = max(0.0, 1.0 - veg * 3.0) * max(0.0, 1.0 - alt * 2.5) * max(0.0, 1.0 - pop * 1.5)
+        # Global base rate is very small (< 2.5% even in optimal plains, 0% elsewhere)
+        is_click_roll = (random.random() < open_plain_suitability * 0.025)
+
+        if is_click_roll:
+            if random.random() < 0.50:
+                g[0] = 0.00
+                g[2] = 1.00
             else:
-                g[0], g[7] = 0.08, 0.65 if random.random() < 0.50 else 0.40  # f, v
+                g[0] = 1.00
+                g[2] = 0.00
+                g[3] = float(np.random.choice([0.05, 0.25, 0.50]))
 
-        elif organ_roll < 0.72:  # Coronals: explicitly synthesizes t, d, s, z, l, r, n
-            manner = random.random()
-            g[3] = 0.25
-            if manner < 0.40:
-                g[2], g[7] = 0.00, 0.60 if random.random() < 0.55 else 0.40  # t, d (stops)
-            elif manner < 0.65:
-                g[2], g[7] = 0.06, 0.65 if random.random() < 0.60 else 0.40  # s, z (sibilants)
-            elif manner < 0.80:
-                g[2], g[7] = 0.28, 0.40                                       # l (lateral liquid)
-            elif manner < 0.90:
-                g[2], g[7] = 0.14, 0.40                                       # r (rhotic tap)
-            else:
-                g[2], g[6], g[7] = 0.00, 0.60, 0.40                          # n (nasal)
-
-        else:  # Dorsals (k, g, x, ŋ)
-            manner = random.random()
+            # Posterior velar closure (g4=0, g5>=0.75)
+            g[4] = 0.00
             g[5] = 0.75
-            if manner < 0.65:
-                g[4], g[7] = 0.00, 0.60 if random.random() < 0.55 else 0.40  # k, g
-            elif manner < 0.85:
-                g[4], g[7] = 0.10, 0.65 if random.random() < 0.50 else 0.40  # x, ɣ
-            else:
-                g[4], g[6], g[7] = 0.00, 0.60, 0.40                          # ŋ
+            g[7] = 0.40
+            return Phoneme(g, duration=0.85)
 
-        # Alpine ejective emergence
-        if alt > 0.45 and hum < 0.35 and (g[0] == 0.0 or g[2] == 0.0 or g[4] == 0.0):
-            if random.random() < 0.35:
+        # Standard Single-Constriction Plosive / Fricative
+        organ_choice = int(np.random.choice([0, 2, 4]))
+        g[organ_choice] = np.random.uniform(0.0, 0.08)
+
+        if organ_choice == 2:
+            g[3] = float(np.random.choice([0.25, 0.85]))
+        elif organ_choice == 4:
+            g[5] = float(np.random.choice([0.15, 0.75]))
+
+        g[7] = float(np.random.choice([0.40, 0.60, 0.02]))
+
+        # High-altitude hypoxia promotes larynx elevation (ejectives) to conserve pulmonary air
+        if rho < 0.65 and g[organ_choice] < 0.08:
+            if random.random() < (1.0 - rho) * 0.80:
                 g[7] = 0.02
+                g[8] = 0.85
 
-        # Lowland humid implosive emergence
-        if alt < 0.25 and hum > 0.60 and (g[0] == 0.0 or g[2] == 0.0):
-            if random.random() < 0.30:
-                g[7] = 0.15
+        # Arid heat promotes pharyngeal constriction and tongue backing
+        if hum < 0.32:
+            g[5] = max(g[5], 0.80)
+            if random.random() < (0.38 - hum) * 0.75:
+                g[8] = 0.95
 
         return Phoneme(g, duration=1.0)
 
@@ -112,52 +87,40 @@ class LexiconGenerator:
         hum = getattr(env, "humidity", 0.5) if env else 0.5
         drying = max(0.0, 0.45 - hum)
 
-        # Explore vowel space smoothly across height and backness
-        target_height = float(np.clip(np.random.normal(0.60 - 0.15 * drying, 0.18), 0.25, 0.95))
-        target_backness = float(np.clip(np.random.normal(0.50, 0.25), 0.08, 0.90))
+        # Disperse vowels across the full F1/F2 space: high-front, low-open, high-back
+        corner = random.choices(["front_high", "open_low", "back_high", "mid"], weights=[0.28, 0.30, 0.25, 0.17])[0]
 
-        # Physiological rounding coupling
-        p_round = 1.0 / (1.0 + math.exp(-8.0 * (target_backness - 0.55)))
-        lip_p = float(np.clip(np.random.normal(p_round, 0.10), 0.0, 1.0))
+        if corner == "front_high":
+            target_height = float(np.clip(np.random.normal(0.28, 0.08), 0.20, 0.40))
+            target_backness = float(np.clip(np.random.normal(0.12, 0.06), 0.05, 0.25))
+            lip_p = 0.0
+        elif corner == "back_high":
+            target_height = float(np.clip(np.random.normal(0.30, 0.08), 0.20, 0.45))
+            target_backness = float(np.clip(np.random.normal(0.82, 0.08), 0.70, 0.95))
+            lip_p = 0.85
+        elif corner == "open_low":
+            target_height = float(np.clip(np.random.normal(0.90 - 0.10 * drying, 0.08), 0.75, 0.98))
+            target_backness = float(np.clip(np.random.normal(0.45, 0.20), 0.20, 0.80))
+            lip_p = 0.0
+        else:
+            target_height = float(np.clip(np.random.normal(0.55, 0.10), 0.45, 0.65))
+            target_backness = float(np.clip(np.random.normal(0.50, 0.15), 0.30, 0.70))
+            lip_p = 0.40 if target_backness > 0.50 else 0.0
+
         lip_d = (1.0 - lip_p) * 1.00 + lip_p * 0.35
-
-        if target_height > 0.75:
-            lip_p = min(lip_p, 1.15 - target_height)
-            lip_d = max(lip_d, 0.50)
-
-        # Vowels have tongue tip relaxed on the floor (g2 = 1.0)
-        g = np.array([lip_d, lip_p, 1.00, 0.00, target_height, target_backness, 0.00, 0.40], dtype=np.float32)
-        tau = 1.40 if random.random() < 0.20 else 1.00
+        g = np.array([lip_d, lip_p, 1.00, 0.00, target_height, target_backness, 0.00, 0.40, 0.50], dtype=np.float32)
+        tau = 1.35 if random.random() < 0.20 else 1.00
         return Phoneme(g, duration=tau)
 
     @classmethod
-    def sample_phonotactic_template(cls, profile=None) -> list[str]:
-        s_comp = getattr(profile, "syllable_complexity", 0.50) if profile else 0.50
-        p_coda = 1.0 / (1.0 + math.exp(-7.0 * (s_comp - 0.40)))
-        p_cc_onset = 1.0 / (1.0 + math.exp(-8.0 * (s_comp - 0.60)))
-        p_poly = 0.20 + 0.45 * (1.0 - s_comp)
-
-        def make_syl() -> str:
-            on = "CC" if random.random() < p_cc_onset else "C"
-            cod = "C" if random.random() < p_coda else ""
-            return f"{on}V{cod}"
-
-        syls = [make_syl()]
-        if random.random() < p_poly:
-            syls.append(make_syl())
-        return syls
-
-    @classmethod
     def generate_gestural_root(cls, profile=None, env=None, existing_words: Sequence[Word] | None = None) -> list[Phoneme]:
-        templates = cls.sample_phonotactic_template(profile)
+        s_comp = getattr(profile, "syllable_complexity", 0.50) if profile else 0.50
+
         for _ in range(40):
-            gestures = []
-            for pat in templates:
-                for ch in pat:
-                    if ch == "C":
-                        gestures.append(cls.synthesize_constriction_gesture(env))
-                    else:
-                        gestures.append(cls.synthesize_resonant_gesture(env))
+            gestures = [cls.synthesize_constriction_gesture(env), cls.synthesize_resonant_gesture(env)]
+            if random.random() < (s_comp * 0.70):
+                gestures.append(cls.synthesize_constriction_gesture(env))
+
             repaired = repair_phonemes(gestures, profile=profile)
             if not repaired or not any(p.is_vowel for p in repaired):
                 continue
@@ -167,6 +130,74 @@ class LexiconGenerator:
                     continue
             return repaired
         return repaired
+
+    @classmethod
+    def derive_productive_concept(
+        cls,
+        base_word: Word,
+        derivation_kind: str,
+        lang_lexicon: Sequence[Word],
+        profile=None,
+        env=None,
+    ) -> Word | None:
+        anchor_map = {
+            "agent": SemanticSpace.PERSON,
+            "instrument": SemanticSpace.STONE,
+            "locative": SemanticSpace.EARTH,
+            "diminutive": SemanticSpace.MINI,
+            "augmentative": SemanticSpace.HUGE,
+        }
+        target_anchor = anchor_map.get(derivation_kind, SemanticSpace.PERSON)
+
+        cand_modifiers = [w for w in lang_lexicon if w.id != base_word.id]
+        if not cand_modifiers:
+            return None
+        mod_word = min(cand_modifiers, key=lambda w: w.vector.distance_to(target_anchor))
+
+        if derivation_kind == "agent":
+            new_data = base_word.vector.data * 0.55 + mod_word.vector.data * 0.45
+            new_data[1] = max(new_data[1], 0.85)
+        elif derivation_kind == "instrument":
+            new_data = base_word.vector.data * 0.50 + mod_word.vector.data * 0.50
+            new_data[0] = max(new_data[0], 0.80)
+            new_data[1] = min(new_data[1], 0.20)
+        elif derivation_kind == "locative":
+            new_data = base_word.vector.data * 0.40 + mod_word.vector.data * 0.60
+            new_data[6] = max(new_data[6], 0.70)
+        elif derivation_kind == "diminutive":
+            new_data = base_word.vector.data.copy()
+            new_data[3] = max(0.05, new_data[3] - 0.35)
+            new_data[6] = max(0.05, new_data[6] - 0.40)
+        else:
+            new_data = base_word.vector.data.copy()
+            new_data[3] = min(0.95, new_data[3] + 0.35)
+            new_data[6] = min(0.95, new_data[6] + 0.35)
+
+        new_vec = SemanticVector.from_array(new_data)
+
+        affix_p = mod_word.phonemes[:1] if len(mod_word.phonemes) > 1 else mod_word.phonemes
+        h = getattr(profile, "head_directionality", 0.50)
+        raw_p = (base_word.phonemes + affix_p) if h >= 0.50 else (affix_p + base_word.phonemes)
+        repaired_p = repair_phonemes(raw_p, profile=profile)
+        if not repaired_p or not any(p.is_vowel for p in repaired_p):
+            return None
+
+        m_base = Morpheme(base_word.phonemes, root_family_id=base_word.derivation.root_family_id)
+        m_aff = Morpheme(affix_p, root_family_id=mod_word.derivation.root_family_id, is_grammatical=True, stage=ClineStage.BOUND_AFFIX)
+
+        derived_word = Word(
+            vector=new_vec,
+            phonemes=repaired_p,
+            morphemes=[m_base, m_aff] if h >= 0.50 else [m_aff, m_base],
+            derivation=DerivationRecord(
+                root_family_id=base_word.derivation.root_family_id,
+                derivation_type=DerivationType.AFFIXATION,
+                local_parent_ids=(base_word.id, mod_word.id)
+            ),
+            category=LexicalCategory.CONTENT_OPEN,
+            usage_frequency=1.2,
+        )
+        return derived_word
 
     @classmethod
     def populate_proto_lexicon(cls, population: float = 0.50, **kwargs) -> list[Word]:
@@ -199,142 +230,3 @@ class LexiconGenerator:
             words.append(w)
 
         return words
-
-    @classmethod
-    def expand_vocabulary(
-        cls,
-        lang,
-        growth_rate: float = 0.03,
-        d_sem_min: float = 0.06,
-        current_generation: int = 0,
-        profile=None,
-    ) -> list[Word]:
-        living = list(lang.words.values())
-        if not living:
-            return []
-
-        prof = profile or getattr(lang, "profile", None)
-        env = getattr(lang, "environment", None)
-        pop = getattr(lang, "population", 0.50)
-        s_idx = getattr(prof, "synthesis_index", 0.50) if prof else 0.50
-        s_comp = getattr(prof, "syllable_complexity", 0.50) if prof else 0.50
-        dir_bias = getattr(prof, "head_directionality", 0.50) if prof else 0.50
-        attn = lang.cultural_attention
-
-        k_cap = round(2500.0 * (1.0 + math.tanh(pop * 1.5)))
-        n_current = len(living)
-        if n_current >= k_cap:
-            return []
-
-        damping = max(0.0, 1.0 - (n_current / k_cap))
-        attempts = max(2, min(30, int(round(n_current * growth_rate * damping))))
-
-        density = min(1.0, n_current / 800.0)
-        mean_len = sum(len(w.phonemes) for w in living) / max(1, n_current)
-        len_pen = math.tanh(max(0.0, mean_len - 5.0))
-
-        e_root = 1.20 * (1.0 - density) - 0.40 * len_pen
-        e_comp = 1.40 * (1.0 - s_idx) - 0.80 * len_pen
-        e_affx = 1.50 * s_idx + 0.60 * len_pen
-        pots = np.array([e_root, e_comp, e_affx], dtype=np.float32)
-        exp_p = np.exp(pots - np.max(pots))
-        strat_probs = exp_p / np.sum(exp_p)
-
-        max_family_id = max((w.derivation.root_family_id for w in living), default=0)
-        new_born: list[Word] = []
-        candidate_plans = []
-
-        for _ in range(attempts):
-            strat = random.choices(["root", "compound", "affix"], weights=strat_probs, k=1)[0]
-            if strat == "root" or len(living) < 10:
-                coords = [float(np.clip(random.gauss(0.5, 0.22), 0.02, 0.98)) for _ in range(7)]
-                candidate_plans.append({"type": "root", "vec": SemanticVector(*coords), "parents": ()})
-            elif strat == "compound":
-                w1, w2 = random.sample(living, 2)
-                candidate_plans.append({"type": "compound", "vec": w1.vector.blend(w2.vector, 0.55), "parents": (w1, w2)})
-            else:
-                base, host = random.sample(living, 2)
-                candidate_plans.append({"type": "affix", "vec": base.vector.blend(host.vector, 0.70), "parents": (base, host)})
-
-        if not candidate_plans:
-            return []
-
-        existing_coords = [w.vector.coords for w in living]
-        cand_coords = [p["vec"].coords for p in candidate_plans]
-        valid_mask = GPUSemanticEngine.filter_candidate_density_gpu(
-            candidates_coords=cand_coords,
-            existing_coords=existing_coords,
-            weights=attn,
-            d_min=d_sem_min,
-        )
-
-        for plan, is_valid in zip(candidate_plans, valid_mask):
-            if not is_valid:
-                continue
-            ptype, cand_vec = plan["type"], plan["vec"]
-
-            if ptype == "root":
-                p_root = cls.generate_gestural_root(profile=prof, env=env, existing_words=living)
-                if not p_root:
-                    continue
-                max_family_id += 1
-                word = Word(
-                    vector=cand_vec,
-                    phonemes=p_root,
-                    derivation=DerivationRecord(root_family_id=max_family_id, derivation_type=DerivationType.ROOT),
-                    usage_frequency=0.90,
-                    category=LexicalCategory.CONTENT_OPEN,
-                    generation_born=current_generation,
-                )
-            elif ptype == "compound":
-                w1, w2 = plan["parents"]
-                h1 = repair_phonemes(_extract_metrical_head(w1, "head"), prof)
-                h2 = repair_phonemes(_extract_metrical_head(w2, "tail"), prof)
-                raw = h1 + h2
-                cleaned = repair_phonemes(raw, prof)
-                split = max(1, min(len(cleaned) - 1, len(h1)))
-                m1 = Morpheme(cleaned[:split], root_family_id=w1.derivation.root_family_id)
-                m2 = Morpheme(cleaned[split:], root_family_id=w2.derivation.root_family_id)
-                word = Word(
-                    vector=cand_vec,
-                    phonemes=cleaned,
-                    morphemes=[m1, m2],
-                    derivation=DerivationRecord(
-                        root_family_id=w1.derivation.root_family_id,
-                        derivation_type=DerivationType.COMPOUND,
-                        local_parent_ids=(w1.id, w2.id),
-                    ),
-                    usage_frequency=1.10,
-                    category=LexicalCategory.CONTENT_OPEN,
-                    generation_born=current_generation,
-                )
-            else:
-                base, host = plan["parents"]
-                p_base = repair_phonemes(_extract_metrical_head(base, "head"), prof)
-                p_aff = repair_phonemes(host.phonemes[:2], prof)
-                raw = p_base + p_aff
-                cleaned = repair_phonemes(raw, prof)
-                split = max(1, min(len(cleaned) - 1, len(p_base)))
-                m_base = Morpheme(cleaned[:split], root_family_id=base.derivation.root_family_id)
-                m_aff = Morpheme(cleaned[split:], root_family_id=host.derivation.root_family_id, is_grammatical=True, stage=ClineStage.BOUND_AFFIX)
-                word = Word(
-                    vector=cand_vec,
-                    phonemes=cleaned,
-                    morphemes=[m_base, m_aff],
-                    derivation=DerivationRecord(
-                        root_family_id=base.derivation.root_family_id,
-                        derivation_type=DerivationType.AFFIXATION,
-                        local_parent_ids=(base.id, host.id),
-                    ),
-                    usage_frequency=1.00,
-                    category=LexicalCategory.CONTENT_OPEN,
-                    generation_born=current_generation,
-                )
-
-            apply_prosody(word, directional_bias=dir_bias, syllable_complexity=s_comp)
-            if not any(w.plain_form == word.plain_form for w in living):
-                lang.add_word(word)
-                living.append(word)
-                new_born.append(word)
-
-        return new_born

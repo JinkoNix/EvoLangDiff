@@ -1,6 +1,7 @@
 """
-semantics.py — Continuous 7D Cognitive Space, Typed Derivation Trees, and Biological Prototype Anchors.
-Optimized for vectorized SIMD operations and continuous parameter spaces.
+semantics.py — Continuous 7D Cognitive Semantic Space, Typed Derivations,
+and Prototype Anchors.
+Part of the EvoLangDiff Engine.
 """
 
 from __future__ import annotations
@@ -54,8 +55,6 @@ _CLINE_DEPTHS: dict[ClineStage, float] = {
     ClineStage.FUSED_INTERNAL: 0.92,
     ClineStage.ZERO: 1.00,
 }
-
-_BASE_CLINE_DECAY = np.array([2.40, 2.80, 0.00, 1.80, 0.00, 0.00, 0.00], dtype=np.float32)
 
 
 class SemanticVector:
@@ -138,7 +137,6 @@ class SemanticVector:
 
     @property
     def is_grammatical(self) -> bool:
-        # Logistic distribution replacing threshold cliff
         p_gram = 1.0 / (1.0 + math.exp(-12.0 * (self.grammaticality_index - 0.70)))
         return p_gram >= 0.50
 
@@ -163,18 +161,32 @@ class SemanticVector:
         blended = w * self._data + (1.0 - w) * other._data
         return SemanticVector.from_array(blended)
 
-    def generalize_for_cline(self, stage: ClineStage, cultural_attention: Sequence[float] | None = None) -> SemanticVector:
+    def generalize_for_cline(
+        self,
+        stage: ClineStage,
+        functional_target: Sequence[float] | None = None,
+        cultural_attention: Sequence[float] | None = None
+    ) -> SemanticVector:
+        """
+        Continuous Semantic Bleaching as a directional projection.
+        Substantive mass (concreteness, animacy) decays proportionally to cline depth,
+        re-projecting the vector toward the functional case axis.
+        """
         t = _CLINE_DEPTHS.get(stage, 0.0)
         if t <= 0.0:
             return self
 
-        rates = _BASE_CLINE_DECAY.copy()
+        decay_weights = np.array([2.5, 2.5, 0.8, 0.8, 0.5, 0.5, 0.5], dtype=np.float32)
         if cultural_attention is not None:
             attn = np.asarray(cultural_attention, dtype=np.float32)
-            rates[0] /= max(0.5, float(attn[0]))
-            rates[1] /= max(0.5, float(attn[1]))
+            decay_weights /= np.maximum(0.3, attn)
 
-        decayed = self._data * np.exp(-rates * t)
+        decayed = self._data * np.exp(-decay_weights * t)
+
+        if functional_target is not None:
+            f_arr = np.asarray(functional_target, dtype=np.float32)
+            decayed = (1.0 - t * 0.6) * decayed + (t * 0.6) * f_arr
+
         return SemanticVector.from_array(decayed)
 
     def __iter__(self):
@@ -186,7 +198,6 @@ class SemanticVector:
 
 
 class SemanticSpace:
-    """Cognitive Prototype Anchors (Rosch & Lakoff Prototype Theory)."""
     WATER = SemanticVector(1.0, 0.0, 0.7, 0.5, 0.5, 0.1, 0.4)
     FIRE  = SemanticVector(0.9, 0.1, 0.4, 0.8, 0.9, 0.2, 0.3)
     SUN   = SemanticVector(0.9, 0.1, 0.8, 1.0, 0.6, 0.1, 0.9)

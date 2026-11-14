@@ -10,8 +10,10 @@
     header { background: #11151c; border-bottom: 1px solid #21262d; padding: 8px 18px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
     h1 { font-size: 1.05rem; color: #58a6ff; letter-spacing: 0.5px; }
 
-    .workspace { display: grid; grid-template-columns: 1fr 540px; flex: 1; min-height: 0; overflow: hidden; }
+    /* 3-Panel Layout: Left Live Inspector (320px) | Center Map (1fr) | Right Dialect Probe (460px) */
+    .workspace { display: grid; grid-template-columns: 320px 1fr 460px; flex: 1; min-height: 0; overflow: hidden; }
 
+    .left-panel { background: #0e1217; border-right: 1px solid #21262d; display: flex; flex-direction: column; overflow-y: auto; padding: 12px; gap: 10px; }
     .map-container { position: relative; background: #05070a; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     canvas { border: 1px solid #30363d; cursor: crosshair; image-rendering: pixelated; }
     .map-controls { position: absolute; bottom: 12px; left: 12px; background: rgba(17, 21, 28, 0.94); padding: 8px 12px; border-radius: 6px; border: 1px solid #30363d; font-size: 0.75rem; z-index: 10; display: flex; gap: 8px; align-items: center; }
@@ -47,6 +49,9 @@
     .stat-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.78rem; }
     .stat-val { font-weight: 600; color: #f0f6fc; }
 
+    /* Fixed 2-Line Migration Box to prevent layout jumping */
+    .migration-box { min-height: 2.3em; font-size: 0.72rem; color: #79c0ff; line-height: 1.25; word-break: break-word; }
+
     .tag-cloud { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
     .tag { background: #161b22; border: 1px solid #30363d; color: #79c0ff; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: 500; }
     .tag-ejective { background: #3d1c1c; border: 1px solid #f85149; color: #ff7b72; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; }
@@ -56,14 +61,18 @@
 
     .tone-pair-row { background: #161b22; border: 1px solid #21262d; border-radius: 4px; padding: 4px 8px; margin-bottom: 4px; font-size: 0.75rem; }
 
-    .bar-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 0.75rem; }
-    .bar-label { width: 90px; color: #8b949e; }
+    .bar-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.74rem; }
+    .bar-label { width: 85px; color: #8b949e; }
     .bar-wrap { flex: 1; height: 6px; background: #161b22; border-radius: 3px; overflow: hidden; }
-    .bar-fill { height: 100%; background: #58a6ff; border-radius: 3px; }
+    .bar-fill { height: 100%; background: #58a6ff; border-radius: 3px; transition: width 0.15s ease; }
 
     table { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-top: 4px; }
     th, td { border: 1px solid #21262d; padding: 3px 6px; text-align: left; }
     th { background: #161b22; color: #8b949e; }
+
+    .tab-bar { display: flex; gap: 4px; margin-bottom: 6px; border-bottom: 1px solid #21262d; padding-bottom: 4px; }
+    .tab-btn { background: #161b22; border: 1px solid #30363d; color: #8b949e; font-size: 0.70rem; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
+    .tab-btn.active { background: #21262d; color: #58a6ff; border-color: #58a6ff; font-weight: bold; }
 
     .word-list { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; padding-right: 4px; }
     .word-item { display: flex; justify-content: space-between; align-items: center; background: #161b22; padding: 6px 9px; border-radius: 4px; border: 1px solid #21262d; }
@@ -73,43 +82,88 @@
     .badge { padding: 1px 5px; border-radius: 3px; font-size: 0.68rem; font-weight: bold; }
     .badge-noun { background: #1f3547; color: #79c0ff; }
     .badge-verb { background: #1b3c2a; color: #7ee787; }
-    .badge-part { background: #372a1e; color: #f2cc60; }
-    .badge-adj  { background: #322238; color: #d2a8ff; }
+    .badge-adj  { background: #372a1e; color: #f2cc60; }
+    .badge-part { background: #2a2038; color: #d2a8ff; }
     .badge-cls  { background: #281d38; color: #bc8cff; border: 1px solid #4a3266; }
-    .badge-art  { background: #162c3d; color: #58a6ff; border: 1px solid #2a4c68; }
-    .badge-inf  { background: #123326; color: #3fb950; border: 1px solid #235c42; }
+    .badge-super{ background: #4a3210; color: #ffd700; border: 1px solid #856116; }
 
-    .snapshot-tag { font-size: 0.68rem; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363d; background: #161b22; color: #8b949e; display: inline-flex; align-items: center; gap: 5px; }
-    .snapshot-tag.stale { border-color: #d29922; color: #e3b341; background: #272115; }
+    .landmark-row { background: #161b22; border: 1px solid #21262d; border-radius: 4px; padding: 5px 8px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
 
+    .snapshot-tag { font-size: 0.68rem; padding: 2px 6px; border-radius: 3px; border: 1px solid #30363d; background: #161b22; color: #8b949e; }
     .marine-banner { background: #0c1c2e; border: 1px solid #1f6feb; border-radius: 6px; padding: 16px; text-align: center; color: #79c0ff; font-size: 0.85rem; line-height: 1.5; }
-
+    .wilderness-banner { background: #1a2216; border: 1px solid #3fb950; border-radius: 6px; padding: 16px; text-align: center; color: #7ee787; font-size: 0.85rem; line-height: 1.5; }
     .ticker { background: #05070a; border-top: 1px solid #21262d; padding: 5px 14px; font-size: 0.75rem; color: #8b949e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
   </style>
 </head>
 <body>
 
   <header>
-    <h1>EvoLangDiff — Continuous 2D Spatial Dialect Diffusion & Telemetry</h1>
-    <span style="font-size: 0.75rem; color: #8b949e;">Autonomous Evolutionary Dialectology</span>
+    <h1>EvoLangDiff — Continuous 2D Linguistic Manifold Observer</h1>
+    <span style="font-size: 0.75rem; color: #8b949e;">Autonomous Evolutionary Dialectology & Cliodynamics</span>
   </header>
 
   <div class="workspace">
+    <!-- LEFT PANEL: Real-time Pixel & Territorial Inspector + 7D Mindset Genome -->
+    <div class="left-panel">
+      <div class="card">
+        <div class="card-title">Realtime Geo-Ecological Inspector</div>
+        <div class="stat-row"><span>Coordinates:</span><span class="stat-val" id="liveCoords">(Hover over map)</span></div>
+        <div class="stat-row"><span>Terrain / Biome:</span><span class="stat-val" id="liveBiome">-</span></div>
+        <div class="stat-row"><span>Thermal Climate:</span><span class="stat-val" id="liveTemp">-</span></div>
+        <div class="stat-row"><span>Humidity / Aridity:</span><span class="stat-val" id="liveHum">-</span></div>
+        <div class="stat-row"><span>Fauna Biomass:</span><span class="stat-val" style="color:#7ee787;" id="liveFauna">-</span></div>
+        <div class="stat-row"><span>Soil / Flora State:</span><span class="stat-val" id="liveSoil">-</span></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Human Presence & Infrastructure</div>
+        <div class="stat-row"><span>Settlement Status:</span><span class="stat-val" style="color:#f2cc60;" id="liveStage">-</span></div>
+        <div class="stat-row"><span>Sunk Infrastructure:</span><span class="stat-val" id="liveInfra">-</span></div>
+        <div class="stat-row"><span>Local Population:</span><span class="stat-val" style="color:#7ee787;" id="livePop">-</span></div>
+        <div class="stat-row"><span>Metabolic Food Balance:</span><span class="stat-val" id="liveCalories">-</span></div>
+        <div class="stat-row"><span>Prestige Density:</span><span class="stat-val" style="color:#d2a8ff;" id="livePrestige">-</span></div>
+        <div class="stat-row" style="margin-top:4px; flex-direction:column; gap:2px;">
+          <span style="font-size:0.7rem; color:#8b949e;">Live Movement & Migration:</span>
+          <!-- Reserved 2-line box prevents layout jumping -->
+          <div class="migration-box" id="liveMigration">-</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Territory, Sovereignty & Fealty</div>
+        <div class="stat-row"><span>Sovereign Ruler:</span><span class="stat-val" style="color:#58a6ff;" id="livePolity">-</span></div>
+        <div class="stat-row"><span>Political Status:</span><span class="stat-val" id="liveContract">-</span></div>
+        <div class="stat-row"><span>Frontier Security:</span><span class="stat-val" id="liveDanger">-</span></div>
+        <div class="stat-row"><span>Terrain Permeability:</span><span class="stat-val" id="livePerm">-</span></div>
+      </div>
+
+      <!-- 7D MINDSET GENOME (ANIMATES ON HOVER ON LEFT PANEL) -->
+      <div class="card">
+        <div class="card-title">Local 7D Mindset Genome (Sum = 7.0)</div>
+        <div id="liveAttentionBars">
+          <div style="color:#8b949e; font-size:0.7rem;">Hover over populated land to observe societal resource allocation.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER CANVAS -->
     <div class="map-container">
       <canvas id="gridCanvas" width="600" height="600"></canvas>
       <div class="map-controls">
         <span>Overlay:</span>
         <select id="overlaySelect" onchange="renderGrid()">
-          <option value="hegemony" selected>Imperial Hegemony & Civilizations</option>
-          <option value="population">Demographic Density</option>
-          <option value="prestige">Imperial Prestige & Agglomeration</option>
+          <option value="hegemony" selected>Hegemony (Empire Hue + Provincial Substrate)</option>
+          <option value="population">Demographic Density & Migration</option>
+          <option value="temperature">Thermal Climate (Freezing ↔ Torrid)</option>
+          <option value="fauna">Fauna / Animal Biomass</option>
+          <option value="prestige">Prestige Agglomeration</option>
           <option value="permeability">Isoglosses / Permeability</option>
           <option value="complexity">Syllable Complexity σ(x,y)</option>
           <option value="head_directionality">Word Order h(x,y) [SOV ↔ VSO]</option>
           <option value="synthesis_index">Synthesis Index s(x,y)</option>
-          <option value="humidity">Humidity</option>
+          <option value="humidity">Humidity / Aridity</option>
           <option value="vegetation">Vegetation</option>
-          <option value="none">None (Pure Topography)</option>
+          <option value="none">None (Pure Topography & Waterways)</option>
         </select>
         <span>Opacity:</span>
         <input type="range" id="opacitySlider" min="0" max="100" value="75" oninput="renderGrid()" style="width: 70px;">
@@ -117,6 +171,7 @@
       </div>
     </div>
 
+    <!-- RIGHT PANEL: Linguistic Deep Probe (Fast Caching) -->
     <div class="right-panel">
       <div class="control-deck">
         <div class="deck-row">
@@ -143,69 +198,79 @@
           </div>
           <div class="stat-row"><span>Coordinates:</span><span class="stat-val" id="probeCoords">-</span></div>
           <div class="stat-row"><span>Dominant Hegemony:</span><span class="stat-val" style="color: #f2cc60;" id="probePolity">-</span></div>
+          <div class="stat-row"><span>Site Etymology:</span><span class="stat-val" style="color: #79c0ff;" id="probePolityEtym">-</span></div>
           <div class="stat-row"><span>Biome State:</span><span class="stat-val" id="probeGeo">-</span></div>
-          <div class="stat-row"><span>Living Population:</span><span class="stat-val" style="color: #7ee787;" id="probePop">-</span></div>
-          <div class="stat-row" id="prestigeRow"><span>Imperial Prestige:</span><span class="stat-val" style="color: #58a6ff;" id="probePrestige">-</span></div>
-          <div class="stat-row" id="intellRow"><span>Cradle Mutual Intelligibility:</span><span class="stat-val" style="color: #d2a8ff;" id="probeIntell">-</span></div>
+          <div class="stat-row"><span>Local Citizens:</span><span class="stat-val" style="color: #7ee787;" id="probePop">-</span></div>
+          <div class="stat-row" id="intellRow"><span>Mutual Intelligibility:</span><span class="stat-val" style="color: #d2a8ff;" id="probeIntell">-</span></div>
         </div>
 
         <div id="marineView" class="marine-banner" style="display: none;">
           🌊 <strong>Marine Expanse (Open Water)</strong><br>
-          <span style="font-size:0.75rem; color:#8b949e;">Deep oceanic waters with zero terrestrial human settlement.<br>Click emerged landmasses to evoke living spoken dialects.</span>
+          <span style="font-size:0.75rem; color:#8b949e;">Deep oceanic waters with zero terrestrial human settlement.</span>
+        </div>
+
+        <div id="wildernessView" class="wilderness-banner" style="display: none;">
+          🌲 <strong>Pristine Wilderness (Unsettled)</strong><br>
+          <span style="font-size:0.75rem; color:#8b949e;">Land biome with zero human citizens. No spoken dialect exists at these coordinates.</span>
         </div>
 
         <div id="landView" style="display: flex; flex-direction: column; gap: 10px;">
           <div class="card">
-            <div class="card-title">Grammatical Frame & Typology</div>
+            <div class="card-title">Regional Landmarks & Toponymy</div>
+            <div id="landmarkList" style="display:flex; flex-direction:column; gap:4px;"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Grammatical Frame & Numeral Logic</div>
             <div class="stat-row"><span>Word Order & Alignment:</span><span class="stat-val" style="color: #58a6ff;" id="probeOrder">-</span></div>
             <div class="stat-row"><span>Morphological Strategy:</span><span class="stat-val" id="probeStrategy">-</span></div>
-            <div class="stat-row"><span>Noun Classes / Genders:</span><span class="stat-val" style="color: #d2a8ff;" id="probeClasses">-</span></div>
             <div class="stat-row"><span>Articles / Number System:</span><span class="stat-val" id="probeArticleNumber">-</span></div>
-            <div class="stat-row"><span>Tone System:</span><span class="stat-val" style="color: #f2cc60;" id="probeToneSystem">-</span></div>
-            <div class="stat-row"><span>Emergent Pronouns:</span><span class="stat-val" style="color: #7ee787;" id="probePronouns">-</span></div>
-            <div class="stat-row"><span>Emergent Numerals (1–5):</span><span class="stat-val" id="probeNumerals">-</span></div>
+            <div class="stat-row"><span>Counting Radix:</span><span class="stat-val" style="color: #7ee787;" id="probeRadix">-</span></div>
+            <div class="stat-row"><span>Noun Classes / Genders:</span><span class="stat-val" style="color: #d2a8ff;" id="probeClasses">-</span></div>
+            <div class="stat-row"><span>Living Numerals:</span><span class="stat-val" id="probeNumerals">-</span></div>
           </div>
 
           <div class="card" id="toneDeck" style="display: none;">
             <div class="card-title">Contrastive Chao Tone Inventory</div>
             <div class="tag-cloud" id="probeTonesList" style="margin-bottom: 8px;"></div>
-            <div style="font-size:0.7rem; color:#8b949e; margin-bottom:4px;">Minimal Tone Pairs (Semantic Pitch Distinction):</div>
+            <div style="font-size:0.7rem; color:#8b949e; margin-bottom:4px;">Minimal Tone Pairs:</div>
             <div id="probeTonePairs"></div>
           </div>
 
           <div class="card">
-            <div class="card-title">Noun Declension Paradigm (<span id="nounTitle" style="color:#7ee787;">-</span>)</div>
+            <div class="card-title">Noun Declension (<span id="nounTitle" style="color:#7ee787;">-</span>)</div>
             <table id="nounTable"></table>
           </div>
 
           <div class="card">
-            <div class="card-title">Verb Conjugation Paradigm (<span id="verbTitle" style="color:#58a6ff;">-</span>)</div>
+            <div class="card-title">Verb Conjugation (<span id="verbTitle" style="color:#58a6ff;">-</span>)</div>
             <table id="verbTable"></table>
           </div>
 
           <div class="card">
             <div class="card-title">
-              <span>Contrastive Phonemic Inventory</span>
+              <span>Phonemic Inventory</span>
               <span class="badge" style="background:#21262d; color:#79c0ff;" id="phonemeCountBadge">0 Phonemes</span>
             </div>
             <div style="font-size:0.7rem; color:#8b949e;">Vowels:</div>
             <div class="tag-cloud" id="probeVowels"></div>
             <div style="font-size:0.7rem; color:#8b949e; margin-top:6px;">Consonants:</div>
             <div class="tag-cloud" id="probeConsonants"></div>
-            <div id="phonologyFeatures" style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;"></div>
           </div>
 
           <div class="card">
             <div class="card-title">
-              <span>Living Vocabulary (<span id="totalVocabCount" style="color:#7ee787;">0</span> Words | Top <span id="displayedCount">0</span>)</span>
-              <input type="text" id="lexiconSearch" placeholder="Filter..." oninput="filterLexicon()" style="width: 120px; padding: 2px 6px;">
+              <span>Living Vocabulary (<span id="totalVocabCount" style="color:#7ee787;">0</span> Active)</span>
+              <input type="text" id="lexiconSearch" placeholder="Filter..." oninput="filterLexicon()" style="width: 110px; padding: 2px 6px;">
+            </div>
+            <div class="tab-bar">
+              <button class="tab-btn active" onclick="setPosFilter('ALL')">All</button>
+              <button class="tab-btn" onclick="setPosFilter('Noun')">Nouns</button>
+              <button class="tab-btn" onclick="setPosFilter('Verb')">Verbs</button>
+              <button class="tab-btn" onclick="setPosFilter('Adjective')">Adjectives</button>
+              <button class="tab-btn" onclick="setPosFilter('Particle')">Grammar</button>
             </div>
             <div class="word-list" id="probeLexicon"></div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">Local 7D Mindset Genome (Sum = 7.0)</div>
-            <div id="probeAttention"></div>
           </div>
         </div>
       </div>
@@ -217,15 +282,18 @@
   <script>
     let gridData = null;
     let selectedX = 32, selectedY = 32;
-    let probedEpoch = 0;
     let isPlaying = false;
     let currentLexicon = [];
+    let currentPosFilter = 'ALL';
     let probeRipple = null;
+    let cityFoundingPulses = [];
+    let flowAnimOffset = 0.0;
 
     async function fetchState() {
       try {
         const res = await fetch('/api/state');
         gridData = await res.json();
+        handleNewCityEvents(gridData.new_city_events);
         updateUI();
       } catch (e) {
         safeSet('tickerDisplay', 'Error connecting to backend: ' + e);
@@ -240,23 +308,23 @@
           body: JSON.stringify({ epochs })
         });
         gridData = await res.json();
+        handleNewCityEvents(gridData.new_city_events);
         updateUI();
-        checkStaleStatus();
       } catch (e) {
         safeSet('tickerDisplay', 'Error stepping simulation: ' + e);
       }
     }
 
-    function checkStaleStatus() {
-      if (!gridData) return;
-      const tag = document.getElementById('probeStatusTag');
-      if (!tag) return;
-      if (gridData.epoch !== probedEpoch) {
-        tag.className = "snapshot-tag stale";
-        tag.innerText = `Snapshot @ Ep. ${probedEpoch} (World: ${gridData.epoch})`;
-      } else {
-        tag.className = "snapshot-tag";
-        tag.innerText = `Snapshot @ Ep. ${probedEpoch}`;
+    function handleNewCityEvents(events) {
+      if (!events || events.length === 0) return;
+      for (const ev of events) {
+        cityFoundingPulses.push({
+          x: ev.x,
+          y: ev.y,
+          r: 2.0,
+          alpha: 1.0,
+          name: ev.name
+        });
       }
     }
 
@@ -274,10 +342,8 @@
           body: JSON.stringify({ x, y })
         });
         const data = await res.json();
-        probedEpoch = data.epoch !== undefined ? data.epoch : (gridData ? gridData.epoch : 0);
         renderProbeData(data);
         pulseCards();
-        checkStaleStatus();
       } catch (e) {
         console.error("Probe error:", e);
       } finally {
@@ -287,20 +353,6 @@
 
     function triggerRipple(x, y) {
       probeRipple = { x, y, r: 2.0, alpha: 1.0 };
-      animateRipple();
-    }
-
-    function animateRipple() {
-      if (!probeRipple) return;
-      probeRipple.r += 1.8;
-      probeRipple.alpha -= 0.055;
-      renderGrid();
-      if (probeRipple.alpha > 0.0) {
-        requestAnimationFrame(animateRipple);
-      } else {
-        probeRipple = null;
-        renderGrid();
-      }
     }
 
     function pulseCards() {
@@ -343,59 +395,107 @@
       if (gridData.events && gridData.events.length > 0) {
         safeSet('tickerDisplay', `Latest: ${gridData.events[gridData.events.length - 1]}`);
       }
-      renderGrid();
+    }
+
+    function getPopColor(val) {
+      if (val < 0.05) return null;
+      if (val < 0.35) {
+        const t = (val - 0.05) / 0.30;
+        return `rgb(${Math.floor(100 + t * 80)}, ${Math.floor(25 + t * 25)}, 20)`;
+      } else if (val < 1.20) {
+        const t = (val - 0.35) / 0.85;
+        return `rgb(${Math.floor(180 + t * 60)}, ${Math.floor(50 + t * 80)}, 20)`;
+      } else if (val < 3.00) {
+        const t = (val - 1.20) / 1.80;
+        return `rgb(${Math.floor(240 + t * 15)}, ${Math.floor(130 + t * 90)}, ${Math.floor(20 + t * 40)})`;
+      } else if (val < 6.50) {
+        const t = (val - 3.00) / 3.50;
+        return `rgb(${Math.floor(255 - t * 120)}, ${Math.floor(220 + t * 35)}, ${Math.floor(60 + t * 195)})`;
+      } else {
+        const t = Math.min(1.0, (val - 6.50) / 6.0);
+        return `rgb(${Math.floor(135 + t * 120)}, ${Math.floor(255 - t * 40)}, ${Math.floor(255)})`;
+      }
     }
 
     function renderProbeData(d) {
       if (!d || !d.coordinates) return;
 
       const marineView = document.getElementById('marineView');
+      const wildernessView = document.getElementById('wildernessView');
       const landView = document.getElementById('landView');
       const intellRow = document.getElementById('intellRow');
-      const prestigeRow = document.getElementById('prestigeRow');
 
       safeSet('probeCoords', `(${d.coordinates[0]}, ${d.coordinates[1]})`);
+      safeSet('probeStatusTag', `Epoch ${d.epoch}`);
 
       if (d.is_water) {
         safeSet('probeTitle', d.dialect_name);
-        safeSet('probePolity', 'None (Marine Abyss)');
-        safeSet('probeGeo', `Depth: ${d.geography.depth_meters.toLocaleString()} m | Temp: ${d.geography.temperature.toFixed(2)}`);
+        safeSet('probePolity', 'None (Open Waters)');
+        safeSet('probePolityEtym', '-');
+        safeSet('probeGeo', `Depth: ${d.geography.depth_meters.toLocaleString()} m`);
         safeSet('probePop', '0 citizens (Submerged)');
-        if (intellRow) intellRow.style.display = 'none';
-        if (prestigeRow) prestigeRow.style.display = 'none';
         if (marineView) marineView.style.display = 'block';
+        if (wildernessView) wildernessView.style.display = 'none';
         if (landView) landView.style.display = 'none';
+        if (intellRow) intellRow.style.display = 'none';
         return;
       }
 
-      if (intellRow) intellRow.style.display = 'flex';
-      if (prestigeRow) prestigeRow.style.display = 'flex';
+      if (d.is_uninhabited) {
+        safeSet('probeTitle', d.dialect_name);
+        safeSet('probePolity', 'Unclaimed Territory');
+        safeSet('probePolityEtym', 'Wilderness');
+        safeSet('probeGeo', `Alt: ${d.geography.elevation.toFixed(2)} | Hum: ${d.geography.humidity.toFixed(2)} | Temp: ${d.geography.temperature.toFixed(2)} | Fauna: ${d.geography.fauna.toFixed(2)}`);
+        safeSet('probePop', '0 citizens (Unsettled)');
+        if (marineView) marineView.style.display = 'none';
+        if (wildernessView) wildernessView.style.display = 'block';
+        if (landView) landView.style.display = 'none';
+        if (intellRow) intellRow.style.display = 'none';
+        return;
+      }
+
       if (marineView) marineView.style.display = 'none';
+      if (wildernessView) wildernessView.style.display = 'none';
       if (landView) landView.style.display = 'flex';
+      if (intellRow) intellRow.style.display = 'flex';
 
-      safeSet('probeTitle', `${d.dialect_name} at (${d.coordinates[0]}, ${d.coordinates[1]})`);
-      
+      safeSet('probeTitle', `${d.dialect_name}`);
+
       const pol = d.polity || {};
-      const capTag = pol.is_capital ? ' ★ [Capital]' : '';
-      safeSet('probePolity', `${pol.name || 'Ungoverned'} (${pol.control_percentage || 0}% Hegemony)${capTag}`);
+      const capTag = pol.is_capital ? ' ★ [Seat]' : '';
+      const polDisplay = pol.dominant_id >= 0 ? `${pol.name} (${pol.control_percentage || 0}% Control)${capTag}` : "Unclaimed Territory";
+      safeSet('probePolity', polDisplay);
+      safeSet('probePolityEtym', `«${pol.literal_meaning || 'Autochthonous Territory'}»`);
 
-      safeSet('probeGeo', `Alt: ${d.geography.elevation.toFixed(2)} | Hum: ${d.geography.humidity.toFixed(2)} | Temp: ${d.geography.temperature.toFixed(2)} | Veg: ${d.geography.vegetation.toFixed(2)}`);
-      safeSet('probePop', `${d.demographics.population.toLocaleString()} citizens (Cap: ${d.demographics.carrying_capacity.toFixed(2)})`);
-      safeSet('probePrestige', `${d.demographics.prestige.toFixed(2)}`);
+      safeSet('probeGeo', `Alt: ${d.geography.elevation.toFixed(2)} | Hum: ${d.geography.humidity.toFixed(2)} | Temp: ${d.geography.temperature.toFixed(2)} | Fauna: ${d.geography.fauna.toFixed(2)}`);
+      safeSet('probePop', `${d.demographics.population.toLocaleString()} citizens`);
       safeSet('probeIntell', `${(d.cradle_intelligibility * 100).toFixed(1)}%`);
+
+      const lmList = document.getElementById('landmarkList');
+      if (lmList) {
+        const lms = d.geography.nearby_landmarks || [];
+        if (lms.length > 0) {
+          lmList.innerHTML = lms.map(lm => `
+            <div class="landmark-row">
+              <div>
+                <span class="badge ${lm.feature_type === 'city' ? 'badge-city' : 'badge-mount'}">${lm.feature_type.toUpperCase()}</span>
+                <span style="color:#7ee787; font-weight:bold; margin-left:4px;">${lm.name}</span>
+                <span style="color:#f2cc60; font-size:0.7rem; margin-left:4px;">«${lm.gloss}»</span>
+              </div>
+              <span style="font-size:0.65rem; color:#8b949e;">${lm.distance_km} km</span>
+            </div>
+          `).join('');
+        } else {
+          lmList.innerHTML = '<span style="color:#8b949e; font-size:0.75rem;">No permanent settlements within 200 km.</span>';
+        }
+      }
 
       safeSet('probeOrder', `${d.typology.word_order} [${d.typology.alignment}]`);
       safeSet('probeStrategy', `${d.typology.morphological_strategy} (S_idx: ${d.typology.synthesis_index.toFixed(2)}, σ: ${d.typology.syllable_complexity.toFixed(2)})`);
-      
-      const clsText = (d.typology.noun_classes && d.typology.noun_classes.length > 0) 
-        ? `${d.typology.noun_classes.length} Classes (${d.typology.noun_classes.join(', ')})`
-        : 'None (Common)';
-      safeSet('probeClasses', clsText);
-
       safeSet('probeArticleNumber', `${d.typology.article_system} | ${d.typology.number_system}`);
-      safeSet('probeToneSystem', `${d.typology.tone_system || 'Non-Tonal'}`);
+      safeSet('probeRadix', `${d.typology.numeral_radix || 'Decimal (Base-10)'}`);
+      safeSet('probeClasses', (d.typology.noun_classes && d.typology.noun_classes.length > 0) ? d.typology.noun_classes.join(', ') : 'None (Common / Dissolved)');
 
-      // Tone Inventory Deck
       const toneDeck = document.getElementById('toneDeck');
       const toneList = document.getElementById('probeTonesList');
       const tonePairs = document.getElementById('probeTonePairs');
@@ -422,32 +522,25 @@
         if (toneDeck) toneDeck.style.display = 'none';
       }
 
-      if (d.pronouns) {
-        safeSet('probePronouns', `1sg: ${d.pronouns['1sg'] || '-'} | 2sg: ${d.pronouns['2sg'] || '-'} | 3sg: ${d.pronouns['3sg'] || '-'}`);
-      }
       if (d.numerals) {
-        safeSet('probeNumerals', Object.entries(d.numerals).map(([num, word]) => `${num}:${word}`).join('  '));
+        safeSet('probeNumerals', Object.entries(d.numerals).slice(0, 8).map(([num, word]) => `${num}:${word}`).join('  '));
       }
 
       const nTitle = document.getElementById('nounTitle');
-      if (nTitle && d.noun_paradigm) {
-        nTitle.innerText = d.noun_paradigm.title_display || `«${d.noun_paradigm.noun_gloss}» /${d.noun_paradigm.noun}/`;
-      }
+      if (nTitle && d.noun_paradigm) nTitle.innerText = d.noun_paradigm.title_display;
       const nTable = document.getElementById('nounTable');
       if (nTable && d.noun_paradigm && d.noun_paradigm.table) {
-        nTable.innerHTML = '<tr><th>Case / Number (State)</th><th>Inflected Dialect Form</th></tr>';
+        nTable.innerHTML = '<tr><th>Case / Number</th><th>Form</th></tr>';
         for (const [k, v] of Object.entries(d.noun_paradigm.table)) {
           nTable.innerHTML += `<tr><td>${k}</td><td style="color:#7ee787; font-weight:bold;">${v}</td></tr>`;
         }
       }
 
       const vTitle = document.getElementById('verbTitle');
-      if (vTitle && d.verb_paradigm) {
-        vTitle.innerText = d.verb_paradigm.title_display || `«${d.verb_paradigm.verb_gloss}» /${d.verb_paradigm.verb}/`;
-      }
+      if (vTitle && d.verb_paradigm) vTitle.innerText = d.verb_paradigm.title_display;
       const vTable = document.getElementById('verbTable');
       if (vTable && d.verb_paradigm && d.verb_paradigm.table) {
-        vTable.innerHTML = '<tr><th>TAM / Agreement (Form)</th><th>Inflected Dialect Form</th></tr>';
+        vTable.innerHTML = '<tr><th>TAM / Agreement</th><th>Form</th></tr>';
         for (const [k, v] of Object.entries(d.verb_paradigm.table)) {
           vTable.innerHTML += `<tr><td>${k}</td><td style="color:#58a6ff; font-weight:bold;">${v}</td></tr>`;
         }
@@ -462,38 +555,24 @@
         if (c.includes('ʼ')) return `<span class="tag-ejective">/${c}/</span>`;
         if (['ɓ', 'ɗ', 'ɠ', 'ʄ'].includes(c)) return `<span class="tag-implosive">/${c}/</span>`;
         if (c.includes('ˁ')) return `<span class="tag-emphatic">/${c}/</span>`;
+        if (['ʘ', 'ǀ', 'ǃ', 'ǂ', 'ǁ'].some(ck => c.includes(ck))) return `<span class="tag" style="background:#3d1a3a; color:#f778ba; border-color:#d23588;">/${c}/</span>`;
         return `<span class="tag">/${c}/</span>`;
       }).join('');
 
-      const featsWrap = document.getElementById('phonologyFeatures');
-      featsWrap.innerHTML = '';
-      if (d.phonology.has_tones) featsWrap.innerHTML += '<span class="badge" style="background:#2a1e38; color:#d2a8ff;">Phonemic Tonogenesis</span>';
-      if (d.phonology.has_implosives) featsWrap.innerHTML += '<span class="badge" style="background:#1c352d; color:#7ee787;">Implosives</span>';
-      if (d.phonology.has_pharyngealized) featsWrap.innerHTML += '<span class="badge" style="background:#36291a; color:#f2cc60;">Pharyngealized Emphatics</span>';
-      if (d.phonology.has_ejectives) featsWrap.innerHTML += '<span class="badge" style="background:#3d1c1c; color:#ff7b72;">Ejectives</span>';
-
       currentLexicon = d.lexicon || [];
-      if (d.vocabulary_stats) {
-        safeSet('totalVocabCount', d.vocabulary_stats.total_lexicon_size.toLocaleString());
-        safeSet('displayedCount', d.vocabulary_stats.displayed_sample.toLocaleString());
-      } else {
-        safeSet('totalVocabCount', currentLexicon.length.toLocaleString());
-        safeSet('displayedCount', currentLexicon.length.toLocaleString());
-      }
-      renderLexiconList(currentLexicon);
-
-      const gNames = ["Concreteness", "Animacy", "Valence", "Potency", "Dynamism", "Sociality", "Extension"];
-      const aWrap = document.getElementById('probeAttention');
-      aWrap.innerHTML = d.cultural_attention.map((val, i) => `
-        <div class="bar-row">
-          <span class="bar-label">${gNames[i]}:</span>
-          <div class="bar-wrap"><div class="bar-fill" style="width: ${(val / 2.5) * 100}%;"></div></div>
-          <span style="width: 32px; font-weight: bold; text-align: right;">${val.toFixed(2)}</span>
-        </div>
-      `).join('');
+      safeSet('totalVocabCount', currentLexicon.length.toLocaleString());
+      filterLexicon();
     }
 
-    function getPosBadgeClass(pos) {
+    function setPosFilter(pos) {
+      currentPosFilter = pos;
+      const btns = document.querySelectorAll('.tab-btn');
+      btns.forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      filterLexicon();
+    }
+
+    function getBadgeClass(pos) {
       if (pos === "Noun") return "badge-noun";
       if (pos === "Verb") return "badge-verb";
       if (pos === "Adjective") return "badge-adj";
@@ -509,20 +588,20 @@
       }
       lWrap.innerHTML = list.map(w => {
         const hasCls = w.grammar_info && w.grammar_info.class;
-        const hasArt = w.grammar_info && w.grammar_info.article;
         const isVerb = w.pos === "Verb";
+        const isSuper = w.stratification && w.stratification.includes("Superstrate");
         return `
           <div class="word-item">
             <div class="word-main">
               <span style="color:#7ee787; font-weight:bold; font-size:0.85rem;">/${w.form}/</span>
               <span style="color:#f2cc60; font-weight:500;">«${w.gloss}»</span>
-              <span class="badge ${getPosBadgeClass(w.pos)}">${w.pos}</span>
+              <span class="badge ${getBadgeClass(w.pos)}">${w.pos}</span>
               ${hasCls ? `<span class="badge badge-cls">${w.grammar_info.class}</span>` : ''}
-              ${hasArt ? `<span class="badge badge-art">${w.grammar_info.article}</span>` : ''}
+              ${isSuper ? `<span class="badge badge-super">SUPERSTRATE</span>` : ''}
               ${isVerb ? `<span class="badge badge-inf">INF</span>` : ''}
             </div>
             <div class="word-meta">
-              <span>Root: /${w.root_form || w.plain}/ | Proto: /*${w.proto_form}/</span>
+              <span>Root: /${w.root_form || w.plain}/</span>
               <span style="font-size:0.65rem; color:#6e7681;">U: ${w.usage_frequency || 1.0} | ${w.energy_cost} J</span>
             </div>
           </div>
@@ -532,42 +611,42 @@
 
     function filterLexicon() {
       const q = (document.getElementById('lexiconSearch').value || '').toLowerCase().trim();
-      if (!q) {
-        renderLexiconList(currentLexicon);
-        return;
+      let list = currentLexicon;
+
+      if (currentPosFilter !== 'ALL') {
+        list = list.filter(w => w.pos === currentPosFilter);
       }
-      const filtered = currentLexicon.filter(w => 
-        (w.form && w.form.toLowerCase().includes(q)) ||
-        (w.root_form && w.root_form.toLowerCase().includes(q)) ||
-        (w.plain && w.plain.toLowerCase().includes(q)) ||
-        (w.gloss && w.gloss.toLowerCase().includes(q)) ||
-        (w.proto_form && w.proto_form.toLowerCase().includes(q)) ||
-        (w.pos && w.pos.toLowerCase().includes(q)) ||
-        (w.grammar_info && w.grammar_info.class && w.grammar_info.class.toLowerCase().includes(q))
-      );
-      renderLexiconList(filtered);
+
+      if (q) {
+        list = list.filter(w =>
+          (w.form && w.form.toLowerCase().includes(q)) ||
+          (w.gloss && w.gloss.toLowerCase().includes(q)) ||
+          (w.root_form && w.root_form.toLowerCase().includes(q))
+        );
+      }
+      renderLexiconList(list);
     }
 
-    function getPopColor(val) {
-      if (val < 0.05) return null;
-      if (val < 0.35) {
-        const t = (val - 0.05) / 0.30;
-        return `rgb(${Math.floor(100 + t * 80)}, ${Math.floor(25 + t * 25)}, 20)`;
-      } else if (val < 1.20) {
-        const t = (val - 0.35) / 0.85;
-        return `rgb(${Math.floor(180 + t * 60)}, ${Math.floor(50 + t * 80)}, 20)`;
-      } else if (val < 3.00) {
-        const t = (val - 1.20) / 1.80;
-        return `rgb(${Math.floor(240 + t * 15)}, ${Math.floor(130 + t * 90)}, ${Math.floor(20 + t * 40)})`;
-      } else if (val < 6.50) {
-        const t = (val - 3.00) / 3.50;
-        return `rgb(${Math.floor(255 - t * 120)}, ${Math.floor(220 + t * 35)}, ${Math.floor(60 + t * 195)})`;
+    function rgbToHsl(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      let h, s, l = (max + min) / 2;
+      if (max === min) {
+        h = s = 0;
       } else {
-        const t = Math.min(1.0, (val - 6.50) / 6.0);
-        return `rgb(${Math.floor(135 + t * 120)}, ${Math.floor(255 - t * 40)}, ${Math.floor(255)})`;
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+          case g: h = (b - r) / d + 2; break;
+          case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
       }
+      return [h * 360, s, l];
     }
 
+    // BICOLOR HEGEMONY SHADER + CANVAS MIGRATION STREAMLINES
     function renderGrid() {
       if (!gridData) return;
       const canvas = document.getElementById('gridCanvas');
@@ -578,6 +657,7 @@
       const overlay = document.getElementById('overlaySelect').value;
       const opacity = parseInt(document.getElementById('opacitySlider').value) / 100.0;
 
+      // Base Topography
       for (let r = 0; r < N; r++) {
         for (let c = 0; c < N; c++) {
           const elev = gridData.elevation[r][c];
@@ -592,12 +672,12 @@
         }
       }
 
+      // Overlays
       if (overlay !== "none" && opacity > 0.0) {
         ctx.save();
         ctx.globalAlpha = opacity;
 
         if (overlay === "hegemony") {
-          // Dynamic territory rendering using each polity's actual linguistic RGB color
           const hegMat = gridData.hegemony;
           const strMat = gridData.hegemony_strength;
           const colorMap = gridData.polity_colors || {};
@@ -607,9 +687,22 @@
               if (gridData.elevation[r][c] <= 0.0) continue;
               const pid = hegMat[r][c];
               const pstr = strMat[r][c];
-              if (pstr < 0.10) continue;
-              const rgb = colorMap[pid] || [160, 160, 160];
-              ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${Math.min(0.85, pstr * 0.95)})`;
+              // Only render if cell is legitimately claimed (pid >= 0 and pstr >= 0.15)
+              if (pid < 0 || pstr < 0.15) continue;
+
+              const sovereignRGB = colorMap[pid] || [160, 160, 160];
+              const [baseH, baseS, baseL] = rgbToHsl(sovereignRGB[0], sovereignRGB[1], sovereignRGB[2]);
+
+              const localH_dir = gridData.head_directionality[r][c];
+              const localS_idx = gridData.synthesis_index[r][c];
+              const localSigma = gridData.complexity[r][c];
+
+              // Continuous provincial substrate hue modulation
+              const shiftedHue = (baseH + (localH_dir - 0.5) * 55 + (localS_idx - 0.5) * 35 + 360) % 360;
+              const shiftedSat = Math.min(1.0, Math.max(0.2, baseS * 0.75 + (localSigma - 0.5) * 0.35));
+              const shiftedLum = Math.min(0.85, Math.max(0.25, baseL * 0.8 + (pstr - 0.5) * 0.3));
+
+              ctx.fillStyle = `hsla(${shiftedHue}, ${Math.floor(shiftedSat * 100)}%, ${Math.floor(shiftedLum * 100)}%, ${Math.min(0.90, pstr * 0.95)})`;
               ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
             }
           }
@@ -624,6 +717,27 @@
                   const col = getPopColor(val);
                   if (!col) continue;
                   ctx.fillStyle = col;
+                } else if (overlay === 'temperature') {
+                  const t = val;
+                  let rC, gC, bC;
+                  if (t < 0.25) {
+                    const f = t / 0.25;
+                    rC = Math.floor(20 + f * 40); gC = Math.floor(60 + f * 120); bC = Math.floor(190 + f * 65);
+                  } else if (t < 0.55) {
+                    const f = (t - 0.25) / 0.30;
+                    rC = Math.floor(60 + f * 70); gC = Math.floor(180 + f * 50); bC = Math.floor(255 - f * 180);
+                  } else if (t < 0.80) {
+                    const f = (t - 0.55) / 0.25;
+                    rC = Math.floor(130 + f * 125); gC = Math.floor(230 - f * 80); bC = Math.floor(75 - f * 55);
+                  } else {
+                    const f = Math.min(1.0, (t - 0.80) / 0.20);
+                    rC = Math.floor(255); gC = Math.floor(150 - f * 120); bC = Math.floor(20);
+                  }
+                  ctx.fillStyle = `rgb(${rC}, ${gC}, ${bC})`;
+                } else if (overlay === 'fauna') {
+                  if (val < 0.05) continue;
+                  const f = Math.min(1.0, val / 2.5);
+                  ctx.fillStyle = `rgb(${Math.floor(60 + f * 180)}, ${Math.floor(120 + f * 100)}, ${Math.floor(30 + f * 20)})`;
                 } else if (overlay === 'prestige') {
                   if (val < 0.05) continue;
                   ctx.fillStyle = `rgb(${Math.floor(val * 240 + 20)}, ${Math.floor(val * 180 + 20)}, 40)`;
@@ -637,8 +751,8 @@
                   ctx.fillStyle = `rgb(${Math.floor((1.0 - val) * 200 + 30)}, ${Math.floor(val * 220)}, 180)`;
                 } else if (overlay === 'humidity') {
                   ctx.fillStyle = `rgb(15, ${Math.floor(val * 160 + 30)}, ${Math.floor(val * 220 + 30)})`;
-                } else {
-                  ctx.fillStyle = `rgb(${Math.floor(val * 200 + 20)}, ${Math.floor(val * 200 + 20)}, 50)`;
+                } else if (overlay === 'vegetation') {
+                  ctx.fillStyle = `rgb(20, ${Math.floor(val * 210 + 35)}, 45)`;
                 }
                 ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
               }
@@ -648,42 +762,169 @@
         ctx.restore();
       }
 
-      // Selected cell highlight
+      // ANIMATED POPULATION MIGRATION STREAMLINES
+      if (gridData.migration_vx && gridData.migration_vy) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(125, 220, 255, 0.45)";
+        ctx.lineWidth = 1.0;
+        flowAnimOffset = (flowAnimOffset + 0.04) % 1.0;
+
+        for (let r = 1; r < N - 1; r += 2) {
+          for (let c = 1; c < N - 1; c += 2) {
+            const p = gridData.population[r][c];
+            if (p < 0.12 || gridData.elevation[r][c] <= 0.0) continue;
+
+            const vx = gridData.migration_vx[r][c];
+            const vy = gridData.migration_vy[r][c];
+            const spd = Math.hypot(vx, vy);
+            if (spd < 0.08) continue;
+
+            const cx = (c + 0.5) * cellW;
+            const cy = (r + 0.5) * cellH;
+            const nx = vx / spd;
+            const ny = vy / spd;
+
+            const startX = cx - nx * cellW * 0.4;
+            const startY = cy - ny * cellH * 0.4;
+            const endX = cx + nx * cellW * 0.5;
+            const endY = cy + ny * cellH * 0.5;
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+
+            const headX = endX - (nx * 2.5 - ny * 1.5);
+            const headY = endY - (ny * 2.5 + nx * 1.5);
+            ctx.beginPath();
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(headX, headY);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
+      // Lakes
+      if (gridData.lakes && gridData.lakes.length > 0) {
+        ctx.save();
+        for (const lk of gridData.lakes) {
+          const lx = (lk.x + 0.5) * cellW;
+          const ly = (lk.y + 0.5) * cellH;
+          const rad = Math.max(2.5, lk.radius * cellW * 0.45);
+          ctx.fillStyle = "rgba(25, 120, 200, 0.75)";
+          ctx.beginPath();
+          ctx.arc(lx, ly, rad, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // Rivers
+      if (gridData.rivers && gridData.rivers.length > 0) {
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        for (const path of gridData.rivers) {
+          if (path.length < 2) continue;
+
+          for (let i = 0; i < path.length - 1; i++) {
+            const p0 = path[i];
+            const p1 = path[i + 1];
+            const q = p0[2] || 1.0;
+            const dynamicWidth = Math.min(5.0, Math.max(0.8, Math.sqrt(q) * 0.95));
+
+            ctx.beginPath();
+            ctx.moveTo((p0[0] + 0.5) * cellW, (p0[1] + 0.5) * cellH);
+            ctx.lineTo((p1[0] + 0.5) * cellW, (p1[1] + 0.5) * cellH);
+
+            ctx.strokeStyle = "rgba(35, 140, 220, 0.80)";
+            ctx.lineWidth = dynamicWidth;
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
+      // Landmarks & Settlements
+      if (gridData.landmarks) {
+        ctx.save();
+        for (const lm of gridData.landmarks) {
+          const lx = (lm.x + 0.5) * cellW;
+          const ly = (lm.y + 0.5) * cellH;
+
+          if (lm.feature_type === 'city') {
+            ctx.fillStyle = "#ffd700";
+            ctx.shadowColor = "#ffd700";
+            ctx.shadowBlur = 6;
+            ctx.beginPath();
+            ctx.arc(lx, ly, 3.8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+          } else if (lm.feature_type === 'mountain') {
+            ctx.fillStyle = "#f0f6fc";
+            ctx.beginPath();
+            ctx.moveTo(lx, ly - 3.5);
+            ctx.lineTo(lx + 3.0, ly + 2.5);
+            ctx.lineTo(lx - 3.0, ly + 2.5);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+
+      // Shockwaves
+      for (let i = cityFoundingPulses.length - 1; i >= 0; i--) {
+        const p = cityFoundingPulses[i];
+        ctx.save();
+        ctx.strokeStyle = `rgba(255, 215, 0, ${p.alpha})`;
+        ctx.lineWidth = 2.0;
+        ctx.beginPath();
+        ctx.arc((p.x + 0.5) * cellW, (p.y + 0.5) * cellH, p.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+
+        p.r += 0.8;
+        p.alpha -= 0.035;
+        if (p.alpha <= 0.0) cityFoundingPulses.splice(i, 1);
+      }
+
+      // Selected Box
       ctx.strokeStyle = "#58a6ff";
       ctx.lineWidth = 2.0;
       ctx.strokeRect(selectedX * cellW - 2, selectedY * cellH - 2, cellW + 4, cellH + 4);
 
-      // Probe ripple animation
+      // Probe Ripple
       if (probeRipple) {
         ctx.save();
         ctx.strokeStyle = `rgba(88, 166, 255, ${probeRipple.alpha})`;
         ctx.fillStyle = `rgba(88, 166, 255, ${probeRipple.alpha * 0.2})`;
         ctx.lineWidth = 2.0;
         ctx.beginPath();
-        ctx.arc(
-          (probeRipple.x + 0.5) * cellW,
-          (probeRipple.y + 0.5) * cellH,
-          probeRipple.r,
-          0,
-          Math.PI * 2
-        );
+        ctx.arc((probeRipple.x + 0.5) * cellW, (probeRipple.y + 0.5) * cellH, probeRipple.r, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
         ctx.restore();
+
+        probeRipple.r += 1.6;
+        probeRipple.alpha -= 0.055;
+        if (probeRipple.alpha <= 0.0) probeRipple = null;
       }
+    }
+
+    function animLoop() {
+      renderGrid();
+      requestAnimationFrame(animLoop);
     }
 
     function getGridCoords(e) {
       const canvas = document.getElementById('gridCanvas');
       const rect = canvas.getBoundingClientRect();
-      const relX = Math.max(0, Math.min(rect.width - 0.001, e.clientX - rect.left));
-      const relY = Math.max(0, Math.min(rect.height - 0.001, e.clientY - rect.top));
-      const x = Math.floor((relX / rect.width) * gridData.size);
-      const y = Math.floor((relY / rect.height) * gridData.size);
-      return {
-        x: Math.max(0, Math.min(gridData.size - 1, x)),
-        y: Math.max(0, Math.min(gridData.size - 1, y))
-      };
+      const x = Math.floor(Math.max(0, Math.min(rect.width - 0.001, e.clientX - rect.left)) / rect.width * gridData.size);
+      const y = Math.floor(Math.max(0, Math.min(rect.height - 0.001, e.clientY - rect.top)) / rect.height * gridData.size);
+      return { x, y };
     }
 
     const canvas = document.getElementById('gridCanvas');
@@ -691,9 +932,114 @@
       if (!gridData) return;
       const { x, y } = getGridCoords(e);
       const elev = gridData.elevation[y][x];
-      const popThousands = Math.round(gridData.population[y][x] * 250);
-      const terrainType = elev <= 0.0 ? `SEA (Depth: ${Math.round(Math.abs(elev)*3800)}m)` : `LAND (Alt: ${elev.toFixed(2)})`;
-      safeSet('coordDisplay', `Cell: (${x}, ${y}) | ${terrainType} | Pop: ~${popThousands.toLocaleString()}k`);
+      const pop = gridData.population[y][x];
+      const temp = gridData.temperature ? gridData.temperature[y][x] : 0.5;
+      const fauna = gridData.fauna ? gridData.fauna[y][x] : 0.0;
+      const infra = gridData.infrastructure ? gridData.infrastructure[y][x] : 0.0;
+      const prest = gridData.prestige ? gridData.prestige[y][x] : 0.0;
+      const perm = gridData.permeability ? gridData.permeability[y][x] : 1.0;
+      const hegId = gridData.hegemony ? gridData.hegemony[y][x] : -1;
+
+      let tempTag = "Mild";
+      if (temp < 0.20) tempTag = "Freezing Frost";
+      else if (temp < 0.45) tempTag = "Cool";
+      else if (temp < 0.75) tempTag = "Warm";
+      else tempTag = "Torrid Heat";
+
+      let stage = "Unsettled Wilderness";
+      if (elev <= 0.0) stage = "Open Ocean";
+      else if (infra >= 10.0 && pop >= 3.5) stage = "Regional Metropolis";
+      else if (infra >= 4.0 && pop >= 1.8) stage = "Walled Town / Port";
+      else if (infra >= 1.5 && pop >= 0.7) stage = "Agrarian Village";
+      else if (pop >= 0.15) stage = "Nomadic Camp / Station";
+      else if (infra >= 1.5) stage = "Abandoned Ruins";
+
+      // Precise Sovereignty Check: Strictly Unclaimed if hegId < 0
+      const pol = (hegId >= 0 && gridData.polities) ? gridData.polities.find(p => p.id === hegId) : null;
+      const polName = pol ? `${pol.name} (${pol.government_type})` : (hegId >= 0 ? `Territory #${hegId}` : "Unclaimed Territory");
+      const contractDesc = (hegId < 0) ? "None (Ungoverned)" : (pol && pol.is_standardized ? "Fealty Agreement (Tributary)" : "Independent Sovereign");
+
+      safeSet('liveCoords', `(${x}, ${y})`);
+      safeSet('liveBiome', elev <= 0.0 ? `Sea (Depth ${Math.round(Math.abs(elev)*3800)}m)` : `Land (Alt ${elev.toFixed(2)})`);
+      safeSet('liveTemp', `${temp.toFixed(2)} [${tempTag}]`);
+      safeSet('liveHum', gridData.humidity ? gridData.humidity[y][x].toFixed(2) : '-');
+      safeSet('liveFauna', fauna.toFixed(2));
+      safeSet('liveSoil', gridData.vegetation ? (gridData.vegetation[y][x] > 0.4 ? "Fertile" : "Depleted / Arid") : '-');
+      safeSet('liveStage', stage);
+      safeSet('liveInfra', infra.toFixed(1));
+      safeSet('livePop', `~${Math.round(pop * 250)}k citizens`);
+      safeSet('liveCalories', pop < 0.05 ? "N/A" : (pop > 3.0 ? "Demographic Strain" : "Adequate"));
+      safeSet('livePrestige', prest.toFixed(1));
+      safeSet('livePolity', polName);
+      safeSet('liveContract', contractDesc);
+      safeSet('liveDanger', perm < 0.15 ? "Contested Frontier [Active Conflict]" : "Secure / Open");
+      safeSet('livePerm', perm.toFixed(2));
+
+      // Fixed 2-Line Migration Display (Zero Layout Jitter)
+      const migBox = document.getElementById('liveMigration');
+      if (migBox) {
+        if (pop < 0.05 || elev <= 0.0) {
+          migBox.innerText = 'None (Uninhabited)';
+        } else if (infra >= 4.0) {
+          migBox.innerText = 'Stationary Sedentary Population';
+        } else if (gridData.migration_vx && gridData.migration_vy) {
+          const mvx = gridData.migration_vx[y][x];
+          const mvy = gridData.migration_vy[y][x];
+          const spd = Math.hypot(mvx, mvy);
+          if (spd < 0.06) {
+            migBox.innerText = 'Stationary Settled Population';
+          } else {
+            const angle = Math.atan2(-mvy, mvx) * 180.0 / Math.PI;
+            let heading = "E";
+            if (-22.5 <= angle && angle < 22.5) heading = "East";
+            else if (22.5 <= angle && angle < 67.5) heading = "North-East";
+            else if (67.5 <= angle && angle < 112.5) heading = "North";
+            else if (112.5 <= angle && angle < 157.5) heading = "North-West";
+            else if (angle >= 157.5 || angle < -157.5) heading = "West";
+            else if (-157.5 <= angle && angle < -112.5) heading = "South-West";
+            else if (-112.5 <= angle && angle < -67.5) heading = "South";
+            else heading = "South-East";
+
+            const isConflict = perm < 0.15;
+            const motive = isConflict ? "Fleeing Conflict Front" : "Pastoral Grazing & Foraging";
+            migBox.innerText = `Migrating ${heading} (${(spd * 4.2).toFixed(1)} km/yr)\n${motive}`;
+          }
+        }
+      }
+
+      // 7D MINDSET GENOME ON LEFT PANEL
+      const aWrap = document.getElementById('liveAttentionBars');
+      if (aWrap && gridData.attention) {
+        const cellA = gridData.attention[y][x];
+        const gNames = ["Matter (C)", "Life (A)", "Cohesion (V)", "Force (P)", "Velocity (D)", "Coordination (S)", "Horizon (E)"];
+        if (pop >= 0.05 && elev > 0.0) {
+          aWrap.innerHTML = cellA.map((val, i) => `
+            <div class="bar-row">
+              <span class="bar-label">${gNames[i]}:</span>
+              <div class="bar-wrap"><div class="bar-fill" style="width: ${(val / 2.5) * 100}%;"></div></div>
+              <span style="width: 28px; font-weight: bold; text-align: right; font-size:0.7rem;">${val.toFixed(2)}</span>
+            </div>
+          `).join('');
+        } else {
+          aWrap.innerHTML = '<div style="color:#8b949e; font-size:0.7rem;">Uninhabited (Zero human attention).</div>';
+        }
+      }
+
+      if (gridData.landmarks) {
+        const hit = gridData.landmarks.find(lm => Math.hypot(lm.x - x, lm.y - y) < 1.6);
+        if (hit) {
+          safeSet('coordDisplay', `[${hit.feature_type.toUpperCase()}] ${hit.name} — «${hit.gloss}» | Temp: ${temp.toFixed(2)} (${tempTag}) | Fauna: ${fauna.toFixed(2)}`);
+          return;
+        }
+      }
+
+      if (elev <= 0.0) {
+        safeSet('coordDisplay', `Cell: (${x}, ${y}) | SEA | Temp: ${temp.toFixed(2)} (${tempTag})`);
+      } else if (pop < 0.05) {
+        safeSet('coordDisplay', `Cell: (${x}, ${y}) | WILDERNESS | Temp: ${temp.toFixed(2)} (${tempTag}) | Fauna: ${fauna.toFixed(2)}`);
+      } else {
+        safeSet('coordDisplay', `Cell: (${x}, ${y}) | ${stage.toUpperCase()} | Pop: ~${Math.round(pop * 250)}k | Temp: ${temp.toFixed(2)}`);
+      }
     });
 
     canvas.addEventListener('click', e => {
@@ -702,7 +1048,10 @@
       queryProbe(x, y);
     });
 
-    fetchState().then(() => queryProbe(32, 32));
+    fetchState().then(() => {
+      queryProbe(32, 32);
+      requestAnimationFrame(animLoop);
+    });
   </script>
 </body>
 </html>

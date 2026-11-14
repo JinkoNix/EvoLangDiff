@@ -1,31 +1,30 @@
 """
-probe.py — Spatial Dialect Realizer, Societal Strata Observer,
-and Telemetry Query Layer.
+probe.py — Spatial Dialect Realizer and Continuous Tensor Collapse Engine.
+Optimized for instantaneous (<40ms) inspection via cohort capping and probe caching.
 Part of the EvoLangDiff Engine.
 """
 
 from __future__ import annotations
 
 import math
-import random
-from collections import Counter
 from typing import Sequence
+from collections import Counter, namedtuple
 import numpy as np
 
 from phonetics import (
     Phoneme,
     repair_phonemes,
-    trajectory_distance,
-    relax_gesture_gradient,
-    apply_syncope_and_clustering,
     render_and_extract_tones,
+    enforce_acoustic_contrast,
 )
-from word import Word, Morpheme, LexicalCategory
+from word import Word, LexicalCategory
 from language import Language, LanguageProfile
 from grammar import GrammarEngine
 from translator import SemanticTranslator
-from semantics import SemanticVector, SemanticSpace, DerivationRecord, DerivationType, LoanProvenance
+from semantics import SemanticVector, SemanticSpace
 from world_grid import WorldGrid
+
+EnvRecord = namedtuple("EnvRecord", ["altitude", "humidity", "temperature", "vegetation", "fauna", "roughness"])
 
 
 class DialectProbe:
@@ -35,413 +34,252 @@ class DialectProbe:
         grid: WorldGrid,
         x: int,
         y: int,
-        proto_roots: Sequence[Word],
-        epoch: int,
+        epoch: int | None = None,
+        proto_roots: Sequence[Word] | None = None,
+        **kwargs,
     ) -> dict:
+        current_epoch = epoch if epoch is not None else kwargs.get("epoch", grid.epoch)
+        cache_key = (x, y, current_epoch)
+        if cache_key in grid._probe_cache:
+            return grid._probe_cache[cache_key]
+
         cell = grid.get_cell_state(x, y)
         alt = cell["elevation"]
-
-        if alt <= 0.0:
-            depth_m = int(round(abs(alt) * 3800))
-            return {
-                "is_water": True,
-                "coordinates": (cell["x"], cell["y"]),
-                "dialect_name": "Marine Expanse (Open Water)",
-                "epoch": epoch,
-                "geography": {
-                    "elevation": cell["elevation"],
-                    "depth_meters": depth_m,
-                    "temperature": cell["temperature"],
-                    "humidity": cell["humidity"],
-                    "vegetation": 0.0,
-                    "terrain_permeability": cell["permeability"],
-                },
-                "demographics": {
-                    "population": 0,
-                    "carrying_capacity": 0.0,
-                    "infrastructure": 0.0,
-                    "prestige": 0.0,
-                },
-                "cultural_attention": cell["attention"],
-                "message": "Open ocean waters.",
-            }
-
-        bias = np.asarray(cell["phonetic_bias"], dtype=np.float32)
-        h = cell["head_directionality"]
-        s_idx = cell["synthesis_index"]
-        s_comp = cell["syllable_complexity"]
-        temp = cell["temperature"]
-        hum = cell["humidity"]
-        veg = cell["vegetation"]
         pop = cell["population"]
-        infra = cell["infrastructure"]
-        prestige = cell["prestige"]
-        attn = np.asarray(cell["attention"], dtype=np.float32)
 
-        polity_info = cell["polity"]
-        dom_name = polity_info["name"]
-        dom_share = polity_info["control_percentage"] / 100.0
+        # 1. Marine Expanse
+        if alt <= 0.0:
+            res = {
+                "is_water": True, "is_uninhabited": True, "coordinates": (cell["x"], cell["y"]),
+                "dialect_name": "Marine Expanse (Open Water)", "epoch": current_epoch,
+                "geography": {
+                    "elevation": cell["elevation"], "depth_meters": int(round(abs(alt) * 3800)),
+                    "temperature": cell["temperature"], "humidity": cell["humidity"],
+                    "vegetation": 0.0, "fauna": 0.0, "terrain_permeability": cell["permeability"], "nearby_landmarks": [],
+                },
+                "demographics": {"population": 0, "carrying_capacity": 0.0, "infrastructure": 0.0, "settlement_tier": "Open Ocean", "net_calories": 0.0, "prestige": 0.0},
+                "cultural_attention": cell["attention"], "message": "Open ocean waters.",
+            }
+            grid._probe_cache[cache_key] = res
+            return res
 
-        if alt > 0.45: reg_type = "Highlands"
-        elif hum > 0.65: reg_type = "Littoral"
-        elif veg > 0.55: reg_type = "Basin"
-        elif temp > 0.50 and hum < 0.28: reg_type = "Steppe"
-        else: reg_type = "Valley"
+        # 2. Uninhabited Wilderness
+        nearby_landmarks = [
+            {"name": lm.name_endonym or f"Site_{lm.id}", "gloss": lm.gloss or "Landmark", "feature_type": lm.feature_type, "distance_km": round(d * 25.0, 1)}
+            for lm in grid.landmarks.values()
+            if (d := math.hypot(lm.x - x, lm.y - y)) <= 8.0
+        ]
+        nearby_landmarks.sort(key=lambda item: item["distance_km"])
 
-        if polity_info["is_capital"]:
-            dialect_title = f"{dom_name} [Imperial Core]"
-        elif dom_share > 0.60:
-            dialect_title = f"{dom_name} ({reg_type} Province)"
-        elif dom_share > 0.35:
-            dialect_title = f"{dom_name} ({reg_type} Marchland)"
-        else:
-            dialect_title = f"Independent {reg_type} Tribes"
+        if pop < 0.05:
+            res = {
+                "is_water": False, "is_uninhabited": True, "coordinates": (cell["x"], cell["y"]),
+                "dialect_name": "Pristine Wilderness (Uninhabited)", "epoch": current_epoch,
+                "geography": {
+                    "elevation": cell["elevation"], "temperature": cell["temperature"],
+                    "humidity": cell["humidity"], "vegetation": cell["vegetation"],
+                    "fauna": cell["fauna"], "terrain_permeability": cell["permeability"],
+                    "nearby_landmarks": nearby_landmarks,
+                },
+                "demographics": {"population": 0, "raw_pop": 0.0, "carrying_capacity": cell["carrying_capacity"], "infrastructure": cell["infrastructure"], "settlement_tier": cell["settlement_tier"], "net_calories": cell["net_calories"], "prestige": cell["prestige"]},
+                "polity": {"dominant_id": -1, "name": "Unclaimed Territory", "literal_meaning": "No Sovereign", "control_percentage": 0.0, "is_capital": False, "color": [80, 80, 80]},
+                "cultural_attention": cell["attention"], "message": "Unsettled wilderness.",
+            }
+            grid._probe_cache[cache_key] = res
+            return res
 
-        profile = LanguageProfile(
-            name=f"{dialect_title}_({x},{y})",
-            head_directionality=h,
-            synthesis_index=s_idx,
-            syllable_complexity=s_comp,
-            max_transition_cost=1.80 + 3.60 * s_comp,
+        # 3. Speech Community Context
+        h, s_idx, s_comp = cell["head_directionality"], cell["synthesis_index"], cell["syllable_complexity"]
+        profile = LanguageProfile(name=f"Dialect_({x},{y})", head_directionality=h, synthesis_index=s_idx, syllable_complexity=s_comp, max_transition_cost=1.80 + 3.60 * s_comp)
+        dialect_lang = Language(name=profile.name, profile=profile, population=pop)
+        dialect_lang.cultural_attention = list(np.asarray(cell["attention"], dtype=np.float32))
+
+        env = EnvRecord(
+            altitude=alt,
+            humidity=cell["humidity"],
+            temperature=cell["temperature"],
+            vegetation=cell["vegetation"],
+            fauna=cell["fauna"],
+            roughness=cell["permeability"]
         )
+        has_tone = ((1.0 / (1.0 + math.exp(6.0 * (s_comp - 0.40)))) * 0.6 + (1.0 / (1.0 + math.exp(6.0 * (s_idx - 0.40)))) * 0.4) >= 0.55
 
-        dialect_lang = Language(name=dialect_title, profile=profile, population=pop)
-        dialect_lang.cultural_attention = list(attn)
+        # 4. Collapse Word Presence Tensor U(x, y)
+        n_manifold = len(grid.lexical_manifold)
+        active_indices = [i for i in range(n_manifold) if grid.word_presence[i, y, x] > 0.035]
 
-        base_n = min(12, len(proto_roots)) if epoch < 10 else len(proto_roots)
-        time_growth = 260.0 * math.sqrt(epoch / 100.0) + (0.85 * epoch)
-        civ_mult = 0.35 + 0.65 * math.tanh(pop * 0.30 + infra * 0.15)
-        total_vocab_count = max(12, int(base_n + time_growth * civ_mult))
-        render_vocab_limit = min(600, total_vocab_count)
+        # SPEED OPTIMIZATION: Cap cohort to top 35 words for fast UI response
+        if len(active_indices) > 35:
+            ranked_active = sorted(active_indices, key=lambda idx: grid.word_presence[idx, y, x], reverse=True)
+            active_indices = ranked_active[:35]
+        elif len(active_indices) < 12:
+            active_indices = list(np.argsort([-grid.word_presence[i, y, x] for i in range(n_manifold)])[:28])
 
-        cluster_seed = (int(x // 3) * 73856093) ^ (int(y // 3) * 19349663) ^ (epoch // 5 * 83492791)
-        rng = random.Random(cluster_seed)
+        local_presence = [grid.word_presence[i, y, x] for i in active_indices]
+        local_base_words = [grid.lexical_manifold[i] for i in active_indices]
 
-        living_words: list[Word] = [w.copy() for w in proto_roots[:min(len(proto_roots), render_vocab_limit)]]
+        # 5. Realize Local Dialect via 9D Phonetic Displacement & Imperial Pull
+        phi_local = grid.phonetic_drift_field[y, x] if hasattr(grid, "phonetic_drift_field") else np.zeros(9, dtype=np.float32)
+        dom_polity_id = cell["polity"]["dominant_id"]
+        dom_polity = next((p for p in grid.polities if p.id == dom_polity_id), None)
 
-        # 1. Deduplicated Horizontal Loanwords
-        loan_sources = []
-        for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < grid.W and 0 <= ny < grid.H:
-                n_cell = grid.get_cell_state(nx, ny)
-                if n_cell["elevation"] > 0.0 and n_cell["prestige"] > prestige + 0.40:
-                    loan_sources.append(n_cell)
+        living_words: list[Word] = []
+        is_suzerain_province = dom_polity is not None and not cell["polity"]["is_capital"] and dom_polity.is_standardized
 
-        num_loans = int(render_vocab_limit * 0.12) if (loan_sources and render_vocab_limit > 50) else 0
-        loan_words = []
-        borrowed_donor_ids: set[int] = set()
+        for w_base, presence_weight in zip(local_base_words, local_presence):
+            is_superstrate_root = (dom_polity and dom_polity.is_standardized and w_base.id in dom_polity.canonical_roots)
 
-        for l_idx in range(num_loans):
-            source = rng.choice(loan_sources)
-            available_donors = [w for w in proto_roots if w.id not in borrowed_donor_ids]
-            if not available_donors:
-                break
-            donor_root = rng.choice(available_donors)
-            borrowed_donor_ids.add(donor_root.id)
+            if is_superstrate_root:
+                canon_phonemes = dom_polity.canonical_roots[w_base.id]
+                h_weight = cell["polity"]["control_percentage"] / 100.0
+                dist_factor = 1.0 / (1.0 + float(dom_polity.dist_cells[y, x]) * 0.08)
+                pull_weight = float(np.clip(dom_polity.centralization * h_weight * dist_factor * cell["permeability"], 0.0, 0.90))
 
-            p_nativized = []
-            for p in donor_root.phonemes:
-                p_bias = bias.copy()
-                if p.is_vowel and p_bias[7] < 0.0:
-                    p_bias[7] = 0.0
-                p_nativized.append(
-                    Phoneme(np.clip(p.g + p_bias * 0.35, 0.0, 1.0), duration=p.duration)
-                )
+                warped_phonemes = []
+                for p_idx, p in enumerate(w_base.phonemes):
+                    g_displaced = np.clip(p.g + phi_local, 0.0, 1.0)
+                    if p_idx < len(canon_phonemes):
+                        g_std = canon_phonemes[p_idx].g
+                        g_final = (1.0 - pull_weight) * g_displaced + pull_weight * g_std
+                    else:
+                        g_final = g_displaced
+                    warped_phonemes.append(Phoneme(g_final, duration=p.duration))
+            else:
+                warped_phonemes = [Phoneme(np.clip(p.g + phi_local, 0.0, 1.0), duration=p.duration) for p in w_base.phonemes]
 
-            repaired_loan = repair_phonemes(p_nativized, profile=profile)
-            if repaired_loan:
-                w_loan = Word(
-                    word_id=5000 + l_idx,
-                    vector=donor_root.vector,
-                    phonemes=repaired_loan,
-                    derivation=DerivationRecord(
-                        root_family_id=donor_root.derivation.root_family_id,
-                        derivation_type=DerivationType.LOANWORD,
-                        provenance=LoanProvenance(
-                            source_language=f"Culture_({source['x']},{source['y']})",
-                            donor_word_id=donor_root.id,
-                            donor_form_at_borrowing=donor_root.plain_form,
-                            donor_vector_at_borrowing=donor_root.vector,
-                            generation_borrowed=max(0, epoch - rng.randint(10, 500)),
-                        )
-                    ),
-                    usage_frequency=rng.uniform(0.7, 1.5),
-                    category=LexicalCategory.CONTENT_OPEN,
-                )
-                loan_words.append(w_loan)
-
-        living_words.extend(loan_words)
-
-        # 2. Autonomous Compounding
-        num_neologisms = max(0, render_vocab_limit - len(living_words))
-        content_candidates = [w for w in living_words if w.category == LexicalCategory.CONTENT_OPEN]
-        t_drift = min(4.5, epoch / 500.0)
-
-        if len(content_candidates) >= 2 and num_neologisms > 0:
-            weights = [math.sqrt(w.usage_frequency) for w in content_candidates]
-            tot_w = sum(weights) or 1.0
-            probs = [w / tot_w for w in weights]
-
-            for neo_idx in range(num_neologisms):
-                w1, w2 = rng.choices(content_candidates, weights=probs, k=2)
-                if w1.id == w2.id:
-                    continue
-
-                blended_vec = w1.vector.blend(w2.vector, weight=rng.uniform(0.40, 0.60))
-                comp_word = dialect_lang.compound_concepts(
-                    w1=w1, w2=w2, blended_vec=blended_vec, new_id=2000 + neo_idx,
-                    epoch=epoch, alt=alt, hum=hum, temp=temp, t_drift=t_drift, rng=rng
-                )
-                if comp_word:
-                    living_words.append(comp_word)
-
-        # 3. Superstrate Stratum Integration
-        if dom_share > 0.50 and not polity_info["is_capital"]:
-            for w in living_words:
-                if w.vector.potency > 0.55 or w.vector.sociality > 0.55:
-                    w.usage_frequency *= (1.0 + dom_share * 0.5)
-
-        # 4. Emergent Tonogenesis
-        coda_drain_pressure = 1.0 / (1.0 + math.exp(6.0 * (s_comp - 0.40)))
-        analytic_pressure = 1.0 / (1.0 + math.exp(6.0 * (s_idx - 0.40)))
-        has_phonemic_tone = (coda_drain_pressure * 0.6 + analytic_pressure * 0.4) >= 0.55
-
-        vowel_pool: list[np.ndarray] = []
-        for w in living_words[:40]:
-            for p in w.phonemes:
-                if p.is_vowel:
-                    vowel_pool.append(p.g)
-                    if len(vowel_pool) >= 28:
-                        break
-
-        transformed_words: list[Word] = []
-        dissonance_acc = 0.0
-
-        for w0 in living_words:
-            X_w0 = w0.tensor
-            if len(X_w0) == 0:
+            repaired = repair_phonemes(warped_phonemes, profile=profile, max_passes=2)
+            if not repaired:
                 continue
 
-            w0_cost = w0.energetic_cost(profile=profile)
-            valence_intensity = abs(w0.vector.valence - 0.50) + (w0.vector.potency * 0.4)
-            mutated_phonemes = []
+            dynamic_usage = float(presence_weight * math.log1p(pop * 1.8) * 3.5)
 
-            for i, p_seg in enumerate(w0.phonemes):
-                adj = w0.phonemes[i - 1] if i > 0 else None
-                m_seg = relax_gesture_gradient(
-                    p=p_seg,
-                    adjacent_p=adj,
-                    neighbor_g_pool=vowel_pool,
-                    valence_intensity=valence_intensity,
-                    bias=bias,
-                    alt=alt,
-                    hum=hum,
-                    temp=temp,
-                    t_drift=t_drift,
-                    rng=rng,
-                    word_cost=w0_cost,
-                )
-                mutated_phonemes.append(m_seg)
-
-            eroded_phonemes = apply_syncope_and_clustering(
-                mutated_phonemes,
-                usage_frequency=w0.usage_frequency,
-                alt=alt,
-                hum=hum,
-                temp=temp,
-                profile=profile,
-                word_cost=w0_cost,
-            )
-
-            X_trans = np.stack([p.vector for p in eroded_phonemes], axis=0)
-            d_dist = trajectory_distance(X_trans[:, :8], X_w0[:, :8])
-            dissonance_acc += d_dist
-
-            m_stem = Morpheme(eroded_phonemes, root_family_id=w0.derivation.root_family_id)
             w_loc = Word(
-                word_id=w0.id,
-                vector=w0.vector,
-                phonemes=eroded_phonemes,
-                morphemes=[m_stem],
-                derivation=w0.derivation,
-                category=w0.category,
-                usage_frequency=w0.usage_frequency,
-                senses=w0.senses,
+                word_id=w_base.id,
+                vector=w_base.vector,
+                phonemes=repaired,
+                derivation=w_base.derivation,
+                category=w_base.category,
+                usage_frequency=round(dynamic_usage, 2),
+                generation_born=w_base.generation_born,
             )
+            living_words.append(w_loc)
 
-            form_w, plain_w, _ = render_and_extract_tones(
-                w_loc.tensor,
-                directional_bias=h,
-                is_tonal=has_phonemic_tone,
-            )
-            w_loc._form = form_w
-            w_loc._plain_form = plain_w
+        ambient_noise = float(cell["infrastructure"] * 0.05 + 0.05)
+        enforce_acoustic_contrast(living_words[:25], min_auditory_margin=0.28, ambient_noise=ambient_noise)
 
+        for w_loc in living_words:
+            form_w, plain_w, _ = render_and_extract_tones(w_loc.tensor, directional_bias=h, is_tonal=has_tone)
+            w_loc._form, w_loc._plain_form = form_w, plain_w
             dialect_lang.add_word(w_loc)
-            transformed_words.append(w_loc)
 
-        # 5. Replicator Dynamics: Fitter words actively devour unoptimized words
-        dialect_lang.compete_lexicon(cohort_sample=transformed_words[:25])
-        transformed_words = [w for w in transformed_words if w.id in dialect_lang.words]
-
-        mean_diss = dissonance_acc / max(1, len(living_words))
-        intelligibility = float(np.clip(math.exp(-1.80 * mean_diss) * (0.25 + 0.75 * cell["permeability"]), 0.0, 1.0))
-
-        contrastive_vowels, contrastive_consonants = dialect_lang.extract_phonemic_inventory()
-
-        tone_inventory = []
-        minimal_tone_pairs = []
-
-        if has_phonemic_tone:
-            tone_names = {
-                "˥": "High-Level (55)", "˧": "Mid-Level (33)", "˩": "Low-Level (11)",
-                "˥˩": "High-Falling (51)", "˩˥": "Low-Rising (15)", "˨˩˦": "Dipping (214)",
-            }
-            tone_counts = Counter()
-            grouped_by_plain: dict[str, list[dict]] = {}
-
-            for w_loc in transformed_words:
-                plain = w_loc.plain_form
-                tone_part = "".join([c for c in w_loc.form if c in "˩˨˧˦˥"])
-                if tone_part:
-                    tone_counts[tone_part] += 1
-                    if plain not in grouped_by_plain:
-                        grouped_by_plain[plain] = []
-                    gloss_str = SemanticTranslator.translate(w_loc, dialect_lang)
-                    if not any(item["tone"] == tone_part for item in grouped_by_plain[plain]):
-                        grouped_by_plain[plain].append({"form": w_loc.form, "gloss": gloss_str, "tone": tone_part})
-
-            for t_sym, cnt in tone_counts.most_common():
-                tone_inventory.append({
-                    "symbol": t_sym,
-                    "name": tone_names.get(t_sym, f"Tone ({t_sym})"),
-                    "frequency": round((cnt / max(1, len(transformed_words))) * 100, 1)
-                })
-
-            for plain, variants in grouped_by_plain.items():
-                if len(variants) >= 2:
-                    minimal_tone_pairs.append({"base": plain, "variants": variants[:3]})
-                if len(minimal_tone_pairs) >= 6:
-                    break
-
+        # 6. Paradigm Discovery
         paradigm = GrammarEngine.discover_grammar_system(dialect_lang)
+        vowels, consonants = dialect_lang.extract_phonemic_inventory(paradigm=paradigm)
 
-        # 6. Strict Part-of-Speech Selection
-        true_nouns = [
-            w for w in transformed_words
-            if w.category == LexicalCategory.CONTENT_OPEN and SemanticTranslator.get_pos(w.vector) == "Noun"
-        ]
-        true_verbs = [
-            w for w in transformed_words
-            if w.category == LexicalCategory.CONTENT_OPEN and SemanticTranslator.get_pos(w.vector) == "Verb"
-        ]
+        counts = Counter()
+        grouped: dict[str, list[dict]] = {}
+        if has_tone:
+            tone_names = {"˥": "High (55)", "˧": "Mid (33)", "˩": "Low (11)", "˥˩": "Falling (51)", "˩˥": "Rising (15)", "˨˩˦": "Dipping (214)"}
+            for w in living_words:
+                tone_str = "".join(c for c in w.form if c in "˩˨˧˦˥")
+                if tone_str:
+                    counts[tone_str] += 1
+                    grouped.setdefault(w.plain_form, []).append({"form": w.form, "gloss": w.plain_form, "tone": tone_str})
 
-        sample_noun = true_nouns[0] if true_nouns else min(transformed_words, key=lambda w: w.vector.distance_to(SemanticSpace.WATER))
-        sample_verb = true_verbs[0] if true_verbs else min(transformed_words, key=lambda w: w.vector.distance_to(SemanticSpace.MAKE))
+            tones_inv = [{"symbol": sym, "name": tone_names.get(sym, f"Tone ({sym})"), "frequency": round((cnt / max(1, len(living_words))) * 100, 1)} for sym, cnt in counts.most_common()]
+            tone_pairs = [{"base": base, "variants": vars[:3]} for base, vars in grouped.items() if len(vars) >= 2][:6]
+        else:
+            tones_inv, tone_pairs = [], []
 
-        noun_table = GrammarEngine.get_noun_declension_table(sample_noun, dialect_lang, paradigm=paradigm)
-        verb_table = GrammarEngine.get_verb_conjugation_table(sample_verb, dialect_lang, paradigm=paradigm)
+        pol = cell["polity"]
+        if dom_polity and not dom_polity.name:
+            capital_anchor = min(living_words, key=lambda w: w.vector.distance_to(SemanticSpace.PERSON))
+            gov_tag = dom_polity.government_type
+            endonym_title = capital_anchor.form.capitalize()
+            dom_polity.name = f"{gov_tag} of {endonym_title}"
+            dom_polity.literal_meaning = f"Authority of {SemanticTranslator.translate(capital_anchor, dialect_lang)}"
+            pol["name"] = dom_polity.name
+            pol["literal_meaning"] = dom_polity.literal_meaning
 
+        true_nouns = [w for w in living_words if w.category == LexicalCategory.CONTENT_OPEN and SemanticTranslator.get_pos(w.vector) == "Noun"]
+        true_verbs = [w for w in living_words if w.category == LexicalCategory.CONTENT_OPEN and SemanticTranslator.get_pos(w.vector) == "Verb"]
+        sample_noun = true_nouns[0] if true_nouns else living_words[0]
+        sample_verb = true_verbs[0] if true_verbs else living_words[0]
+
+        # Fast UI Lexicon Serialization (Avoiding duplicate syllabifications)
         lexicon_payload = []
-        cohort_sample = transformed_words[:32]
-        for w_loc in transformed_words:
-            gloss = SemanticTranslator.translate(w_loc, dialect_lang)
-            if w_loc.derivation.derivation_type == DerivationType.LOANWORD and w_loc.derivation.provenance:
-                gloss = f"{gloss} [Loan: {w_loc.derivation.provenance.source_language}]"
-
-            surf_form, _, grammar_meta = GrammarEngine.get_citation_presentation(w_loc, dialect_lang, paradigm=paradigm)
-            total_cost = w_loc.energetic_cost(profile=profile, cohort_sample=cohort_sample)
-
+        for w in living_words:
+            is_superstrate = (dom_polity and dom_polity.is_standardized and w.id in dom_polity.canonical_roots)
+            pos_label = GrammarEngine.get_part_of_speech(w)
             lexicon_payload.append({
-                "id": w_loc.id,
-                "form": surf_form,
-                "root_form": w_loc.form,
-                "plain": w_loc.plain_form,
-                "gloss": gloss,
-                "proto_form": w_loc.plain_form,
-                "pos": grammar_meta.get("pos", "Particle"),
-                "grammar_info": grammar_meta,
-                "energy_cost": total_cost,
-                "usage_frequency": round(float(w_loc.usage_frequency), 2),
+                "id": w.id, "form": w.form, "root_form": w.form, "plain": w.plain_form,
+                "gloss": SemanticTranslator.translate(w, dialect_lang), "pos": pos_label,
+                "grammar_info": {"pos": pos_label},
+                "stratification": "Superstrate (Imperial Lingua Franca)" if is_superstrate else "Substrate (Local Vernacular)",
+                "energy_cost": round(float(w.energy_cost if hasattr(w, 'energy_cost') else 3.5), 2),
+                "usage_frequency": w.usage_frequency,
             })
 
-        pronouns_display = {k: f"/{v.form}/" for k, v in paradigm.pronouns.items()}
-        numerals_display = {val: GrammarEngine.format_numeral(val, dialect_lang, paradigm) for val in range(1, 6)}
-        human_pop = int(round(pop * 250000))
-        tone_label = f"Tonal ({len(tone_inventory)} Tones)" if has_phonemic_tone else "Non-Tonal (Stress-Accent)"
+        dialect_label = pol["name"] if pol["dominant_id"] >= 0 else "Autonomous Dialect Continuum"
+        if cell["is_danger_zone"]:
+            status_label = "Contested Frontier [Active Conflict]"
+        elif is_suzerain_province:
+            status_label = f"Vassal Province [Superstrate: {dom_polity.name}]"
+        elif pol["dominant_id"] >= 0:
+            status_label = f"Sovereign Core [{dom_polity.government_type}]"
+        else:
+            status_label = "Independent Clan Territory"
 
-        assigned_sample_cls = GrammarEngine.assign_noun_class(sample_noun, paradigm)
-        noun_title_meta = f"«{SemanticTranslator.translate(sample_noun, dialect_lang)}» /{sample_noun.form}/"
-        if assigned_sample_cls:
-            noun_title_meta += f" [{assigned_sample_cls.label}]"
-
-        verb_infinitive = GrammarEngine.get_infinitive_form(sample_verb, dialect_lang, paradigm)
-        verb_title_meta = f"«{SemanticTranslator.translate(sample_verb, dialect_lang)}» {verb_infinitive}"
-
-        return {
-            "is_water": False,
-            "coordinates": (cell["x"], cell["y"]),
-            "dialect_name": dialect_title,
-            "epoch": epoch,
+        res = {
+            "is_water": False, "is_uninhabited": False, "coordinates": (x, y), "epoch": current_epoch,
+            "dialect_name": f"{dialect_label} — {status_label}",
             "geography": {
-                "elevation": cell["elevation"],
-                "temperature": cell["temperature"],
-                "humidity": cell["humidity"],
-                "vegetation": cell["vegetation"],
-                "terrain_permeability": cell["permeability"],
+                "elevation": cell["elevation"], "temperature": cell["temperature"],
+                "humidity": cell["humidity"], "vegetation": cell["vegetation"],
+                "fauna": cell["fauna"], "terrain_permeability": cell["permeability"],
+                "nearby_landmarks": nearby_landmarks,
             },
             "demographics": {
-                "population": human_pop,
-                "raw_pop": pop,
+                "population": int(round(pop * 250000)), "raw_pop": pop,
                 "carrying_capacity": cell["carrying_capacity"],
                 "infrastructure": cell["infrastructure"],
-                "prestige": prestige,
+                "settlement_tier": cell["settlement_tier"],
+                "net_calories": cell["net_calories"],
+                "prestige": cell["prestige"]
             },
-            "polity": polity_info,
+            "polity": pol,
             "cultural_attention": cell["attention"],
             "typology": {
-                "word_order": profile.dominant_word_order,
-                "head_directionality": h,
-                "synthesis_index": s_idx,
-                "syllable_complexity": s_comp,
+                "word_order": profile.dominant_word_order, "head_directionality": h,
+                "synthesis_index": s_idx, "syllable_complexity": s_comp,
                 "morphological_strategy": paradigm.verb_classes[0].morph_strategy.capitalize() if paradigm.verb_classes else "Analytic",
                 "alignment": GrammarEngine.get_alignment_system(dialect_lang),
-                "article_system": paradigm.article_system,
-                "number_system": paradigm.number_system,
-                "noun_classes": [cls_obj.label for cls_obj in paradigm.noun_classes],
-                "tone_system": tone_label,
+                "article_system": paradigm.article_system, "number_system": paradigm.number_system,
+                "numeral_radix": paradigm.numeral_chain.name,
+                "noun_classes": [c.label for c in paradigm.noun_classes],
+                "tone_system": f"Tonal ({len(tones_inv)} Tones)" if has_tone else "Non-Tonal",
             },
             "phonology": {
-                "vowels": contrastive_vowels,
-                "consonants": contrastive_consonants,
-                "has_ejectives": any("ʼ" in c for c in contrastive_consonants),
-                "has_implosives": any(c in {"ɓ", "ɗ", "ɠ", "ʄ"} for c in contrastive_consonants),
-                "has_pharyngealized": any("ˁ" in c for c in contrastive_consonants),
-                "has_tones": has_phonemic_tone,
-                "tone_inventory": tone_inventory,
-                "minimal_tone_pairs": minimal_tone_pairs,
-                "total_phonemes": len(contrastive_vowels) + len(contrastive_consonants),
+                "vowels": vowels, "consonants": consonants, "total_phonemes": len(vowels) + len(consonants),
+                "has_ejectives": any("ʼ" in c for c in consonants), "has_implosives": any(c in {"ɓ", "ɗ", "ɠ", "ʄ"} for c in consonants),
+                "has_pharyngealized": any("ˁ" in c for c in consonants), "has_tones": has_tone,
+                "tone_inventory": tones_inv, "minimal_tone_pairs": tone_pairs,
             },
             "noun_paradigm": {
-                "noun": sample_noun.form,
-                "noun_gloss": SemanticTranslator.translate(sample_noun, dialect_lang),
-                "title_display": noun_title_meta,
-                "alignment": GrammarEngine.get_alignment_system(dialect_lang),
-                "table": noun_table,
+                "noun": sample_noun.form, "noun_gloss": SemanticTranslator.translate(sample_noun, dialect_lang),
+                "title_display": f"«{SemanticTranslator.translate(sample_noun, dialect_lang)}» /{sample_noun.form}/",
+                "alignment": GrammarEngine.get_alignment_system(dialect_lang), "table": GrammarEngine.get_noun_declension_table(sample_noun, dialect_lang, paradigm),
             },
             "verb_paradigm": {
-                "verb": sample_verb.form,
-                "verb_gloss": SemanticTranslator.translate(sample_verb, dialect_lang),
-                "title_display": verb_title_meta,
-                "table": verb_table,
+                "verb": sample_verb.form, "verb_gloss": SemanticTranslator.translate(sample_verb, dialect_lang),
+                "title_display": f"«{SemanticTranslator.translate(sample_verb, dialect_lang)}» {GrammarEngine.get_infinitive_form(sample_verb, dialect_lang, paradigm)}",
+                "table": GrammarEngine.get_verb_conjugation_table(sample_verb, dialect_lang, paradigm),
             },
-            "pronouns": pronouns_display,
-            "numerals": numerals_display,
-            "vocabulary_stats": {
-                "total_lexicon_size": total_vocab_count,
-                "displayed_sample": len(lexicon_payload),
-            },
+            "pronouns": {k: f"/{v.form}/" for k, v in paradigm.pronouns.items()},
+            "numerals": {val: GrammarEngine.format_numeral(val, dialect_lang, paradigm) for val in range(1, paradigm.numeral_chain.primary_base + 3)},
+            "vocabulary_stats": {"total_lexicon_size": len(living_words), "displayed_sample": len(lexicon_payload)},
             "lexicon": lexicon_payload,
-            "cradle_intelligibility": round(intelligibility, 3),
+            "cradle_intelligibility": round(float(np.clip(1.0 - np.linalg.norm(phi_local) * 0.8, 0.05, 1.0)), 3),
         }
+        grid._probe_cache[cache_key] = res
+        return res

@@ -1,6 +1,7 @@
 """
 gpu_accelerator.py — Vectorized & GPU Acceleration Engine for EvoLang.
 Includes batched 7D semantic filtering, territorial propagation, and Perceptual Listener Wells.
+Part of the EvoLangDiff Engine.
 """
 
 from __future__ import annotations
@@ -40,8 +41,8 @@ class GPUSemanticEngine:
         wells_weights: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Maps emitted continuous speech tokens into attractor wells with continuous
-        probabilistic boundary entropy calculation.
+        Maps continuous speech tokens into attractor wells with probabilistic
+        boundary entropy calculation.
         """
         if cls.has_cuda:
             t_t = torch.tensor(tokens_coords, dtype=torch.float32, device=cls.device)
@@ -55,7 +56,6 @@ class GPUSemanticEngine:
             winning_idx = sorted_indices[:, 0]
 
             margin = sorted_pot[:, 1] - sorted_pot[:, 0]
-            # Continuous probabilistic ambiguity: logistic gate replaces boolean threshold
             ambiguity_prob = 1.0 / (1.0 + torch.exp(25.0 * (margin - 0.08)))
             return winning_idx.cpu().numpy(), ambiguity_prob.cpu().numpy()
 
