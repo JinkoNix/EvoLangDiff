@@ -1,12 +1,13 @@
 """
 word.py — Compact Lexical Container wrapping (L, 10) Continuous Articulatory Tensors.
-Morphemes act as explicit segment boundaries, preventing proportional slicing bugs.
+Preserves vectorized phonetic history checkpoints and renders IPA lazily on demand.
 Part of the EvoLangDiff Engine.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from enum import Enum
 from typing import Sequence
 import numpy as np
@@ -18,6 +19,7 @@ from phonetics import (
     render_word_trajectory,
     syllabify,
     assign_stress,
+    trajectory_distance,
 )
 from semantics import SemanticVector, DerivationRecord, DerivationType, ClineStage
 
@@ -25,6 +27,14 @@ from semantics import SemanticVector, DerivationRecord, DerivationType, ClineSta
 class LexicalCategory(Enum):
     CONTENT_OPEN = "content_open"
     FUNCTIONAL_CLOSED = "functional"
+
+
+@dataclass
+class PhoneticHistoryEntry:
+    """Historical checkpoint storing only the compact (L, 10) tensor and metadata."""
+    epoch: int
+    tensor: np.ndarray
+    event: str
 
 
 class Morpheme:
@@ -68,7 +78,8 @@ class Word:
         'id', 'vector', '_phonemes', '_syllables', '_morphemes',
         'derivation', 'usage_frequency', 'category', 'generation_born',
         'epochs_idle', 'senses', '_form', '_plain_form',
-        '_cached_cost', '_cost_env_key', 'is_archaic', 'replaced_by_id'
+        '_cached_cost', '_cost_env_key', 'is_archaic', 'replaced_by_id',
+        '_history'
     )
 
     _ID_COUNTER = 1000
@@ -88,6 +99,7 @@ class Word:
         senses: Sequence[SemanticVector] | tuple[SemanticVector, ...] | None = None,
         is_ephemeral: bool = False,
         is_archaic: bool = False,
+        history: list[PhoneticHistoryEntry] | None = None,
         **kwargs,
     ):
         if word_id is not None:
@@ -141,11 +153,71 @@ class Word:
                 )
             ]
 
+        # Vectorized history log initialized at creation
+        if history is not None:
+            self._history = list(history)
+        else:
+            init_tensor = self.tensor.copy()
+            event_tag = "Proto-Root Coinage" if self.generation_born == 0 else "Productive Coinage"
+            self._history = [PhoneticHistoryEntry(epoch=self.generation_born, tensor=init_tensor, event=event_tag)]
+
     def _invalidate_cache(self) -> None:
         self._form = None
         self._plain_form = None
         self._cached_cost = None
         self._cost_env_key = None
+
+    # -------------------------------------------------------------------------
+    # VECTORIZED HISTORY & ON-DEMAND IPA LOG
+    # -------------------------------------------------------------------------
+
+    def record_evolution(
+        self,
+        epoch: int,
+        new_phonemes: Sequence[Phoneme],
+        event: str = "Phonetic Drift",
+        min_divergence: float = 0.08,
+        force: bool = False
+    ) -> bool:
+        """Records a new historical checkpoint if the phonetic tensor has diverged significantly."""
+        if not new_phonemes:
+            return False
+
+        new_tensor = np.stack([p.vector for p in new_phonemes], axis=0)
+
+        if not force and self._history:
+            last_tensor = self._history[-1].tensor
+            div = trajectory_distance(last_tensor[:, :9], new_tensor[:, :9])
+            if div < min_divergence and (epoch - self._history[-1].epoch) < 30:
+                return False
+
+        self._history.append(PhoneticHistoryEntry(epoch=epoch, tensor=new_tensor, event=event))
+        return True
+
+    def get_history_log(self, directional_bias: float = 0.50) -> list[dict]:
+        """Evaluates IPA forms lazily on demand from the stored vectorized tensors."""
+        log = []
+        for idx, entry in enumerate(self._history):
+            if len(entry.tensor) > 0:
+                form, plain = render_word_trajectory(entry.tensor, directional_bias=directional_bias)
+            else:
+                form, plain = "Ø", "Ø"
+            log.append({
+                "stage_idx": idx,
+                "epoch": entry.epoch,
+                "form": form,
+                "plain": plain,
+                "event": entry.event,
+            })
+        return log
+
+    @property
+    def history(self) -> list[PhoneticHistoryEntry]:
+        return self._history
+
+    # -------------------------------------------------------------------------
+    # PHONEMES & TENSORS
+    # -------------------------------------------------------------------------
 
     @property
     def phonemes(self) -> list[Phoneme]:
@@ -157,15 +229,13 @@ class Word:
         self._syllables = []
         self._invalidate_cache()
 
-        # Update morphemes without proportional slicing errors
         if len(self._morphemes) <= 1:
             if not self._morphemes:
                 self._morphemes = [Morpheme(self._phonemes, self.derivation.root_family_id)]
             else:
                 self._morphemes[0].phonemes = list(self._phonemes)
         else:
-            # Multi-morphemic stem: Preserve structural heads
-            m0_len = min(len(self._morphemes[0].phonemes), len(self._phonemes) - 1)
+            m0_len = min(len(self._morphemes[0].phonemes), max(1, len(self._phonemes) - 1))
             self._morphemes[0].phonemes = list(self._phonemes[:m0_len])
             self._morphemes[1].phonemes = list(self._phonemes[m0_len:])
 
@@ -244,7 +314,6 @@ class Word:
             getattr(env, "altitude", 0.0),
             getattr(env, "temperature", 0.50),
             getattr(env, "humidity", 0.50),
-            len(cohort_sample) if cohort_sample else 0
         )
         if self._cached_cost is None or self._cost_env_key != env_key:
             self._cached_cost = word_energy(
@@ -252,7 +321,6 @@ class Word:
                 profile=profile,
                 env=env,
                 cultural_attention=cultural_attention,
-                cohort_sample=cohort_sample,
             )
             self._cost_env_key = env_key
         return self._cached_cost
@@ -275,6 +343,7 @@ class Word:
             generation_born=self.generation_born,
             senses=self.senses,
             is_archaic=self.is_archaic,
+            history=[PhoneticHistoryEntry(e.epoch, e.tensor.copy(), e.event) for e in self._history],
         )
         w._form = self._form
         w._plain_form = self._plain_form

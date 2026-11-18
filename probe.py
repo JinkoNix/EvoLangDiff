@@ -1,8 +1,6 @@
 """
 probe.py — Spatial Dialect Realizer and Continuous Tensor Collapse Engine.
-Read-only realisation of one cell's dialect (runs on every pixel click, so nothing here evolves the language:
-sound change lives in WorldGrid._step_phonology and reaches the probe through polity.lexicon_phonemes).
-Optimized for instantaneous (<40ms) inspection via cohort capping and probe caching.
+Extracts the full vocabulary available at (x, y) with on-demand diachronic logs.
 Part of the EvoLangDiff Engine.
 """
 
@@ -138,20 +136,22 @@ class DialectProbe:
         has_tone = ((1.0 / (1.0 + math.exp(6.0 * (s_comp - 0.40)))) * 0.6 + (1.0 / (1.0 + math.exp(6.0 * (s_idx - 0.40)))) * 0.4) >= 0.55
         dialect_lang.is_tonal = has_tone
 
-        # 4. Collapse Word Presence Tensor U(x, y) — vectorised cohort selection
+        # 4. Collapse Word Presence Tensor U(x, y) — FULL LEXICON AVAILABLE
         n_manifold = len(grid.lexical_manifold)
         pres = grid.get_presence_column(x, y) if hasattr(grid, "get_presence_column") else grid.word_presence[:n_manifold, y, x]
         order = np.argsort(-pres)
-        active_indices = order[pres[order] > 0.035][:35]
-        if len(active_indices) < 12:
-            head = order[:28]
-            active_indices = head[pres[head] > 1e-3]
+
+        # Uncapped: extract all words with non-negligible presence at this coordinate
+        active_indices = order[pres[order] > 0.003]
+        if len(active_indices) < 20:
+            # Fallback to the top words that diffused to this region
+            active_indices = order[:min(n_manifold, max(24, int(n_manifold * 0.4)))]
         active_indices = [int(i) for i in active_indices]
 
         local_presence = [float(pres[i]) for i in active_indices]
         local_base_words = [grid.lexical_manifold[i] for i in active_indices]
 
-        # 5. Realize Local Dialect: smooth polity overlay + environmental/social drift + multi-layer standard pull
+        # 5. Realize Local Dialect
         phi = np.zeros(9, dtype=np.float32)
         if hasattr(grid, "phonetic_bias"):
             phi += grid.phonetic_bias[y, x]
@@ -167,7 +167,6 @@ class DialectProbe:
         dom_polity_id = cell["polity"]["dominant_id"]
         dom_polity = next((p for p in grid.polities if p.id == dom_polity_id), None)
 
-        # Top-2 overlapping polities for continuous border dialect blending
         h_vec = grid.hegemony[y, x]
         h_total = float(np.sum(h_vec))
         pol_weights: list[tuple[object, float]] = []
@@ -178,7 +177,6 @@ class DialectProbe:
             pol_weights.sort(key=lambda item: item[1], reverse=True)
             pol_weights = pol_weights[:2]
 
-        # Distant Macro/Imperial Lingua Franca (standard_tier >= 2) if any exists
         macro_lingua = max(
             (p_obj for p_obj in grid.polities if getattr(p_obj, "standard_tier", 0) >= 2),
             key=lambda p_obj: p_obj.prestige / (1.0 + float(p_obj.dist_cells[y, x]) * 0.05),
@@ -214,9 +212,8 @@ class DialectProbe:
 
             warped_phonemes = [Phoneme(displaced(p), duration=p.duration) for p in base_phonemes]
 
-            # Layer 1: Regional / National Standard pull
-            is_superstrate_root = (dom_polity and dom_polity.is_standardized and w_base.id in dom_polity.canonical_roots)
-            if is_superstrate_root:
+            # Regional Standard pull
+            if dom_polity and dom_polity.is_standardized and w_base.id in dom_polity.canonical_roots:
                 canon_phonemes = dom_polity.canonical_roots[w_base.id]
                 h_weight = cell["polity"]["control_percentage"] / 100.0
                 dist_factor = 1.0 / (1.0 + float(dom_polity.dist_cells[y, x]) * 0.08)
@@ -230,7 +227,7 @@ class DialectProbe:
                     for p_idx, wp in enumerate(warped_phonemes)
                 ]
 
-            # Layer 2: Macro / Imperial Lingua Franca prestige pull
+            # Macro Lingua Franca pull
             if macro_lingua and macro_lingua is not dom_polity and w_base.id in macro_lingua.canonical_roots:
                 macro_canon = macro_lingua.canonical_roots[w_base.id]
                 m_dist = 1.0 / (1.0 + float(macro_lingua.dist_cells[y, x]) * 0.10)
@@ -248,7 +245,7 @@ class DialectProbe:
             if not repaired:
                 continue
 
-            if w_base.phonemes:
+            if w_base.phonemes and w_base.generation_born == 0:
                 divergence_dists.append(
                     trajectory_distance(
                         np.stack([p.g for p in repaired], axis=0),
@@ -258,36 +255,35 @@ class DialectProbe:
 
             dynamic_usage = float(presence_weight * math.log1p(pop * 1.8) * 3.5)
 
-            living_words.append(Word(
-                word_id=w_base.id,
-                vector=w_base.vector,
-                phonemes=repaired,
-                derivation=w_base.derivation,
-                category=w_base.category,
-                usage_frequency=round(dynamic_usage, 2),
-                generation_born=w_base.generation_born,
-            ))
+            # Copy base word with inherited history
+            w_dial = w_base.copy()
+            w_dial.phonemes = repaired
+            w_dial.usage_frequency = round(dynamic_usage, 2)
+
+            # Checkpoint the localized dialect reflex in the word's history log
+            w_dial.record_evolution(
+                epoch=current_epoch,
+                new_phonemes=repaired,
+                event=f"Dialect Reflex ({cell['settlement_tier']})",
+                min_divergence=0.08,
+            )
+            living_words.append(w_dial)
 
         if not living_words:
-            res = _uninhabited(cell, current_epoch, nearby_landmarks, "Silent Settlement (No Lexicon Reaches Here)", "No lexicon has reached this cell yet.")
+            res = _uninhabited(cell, current_epoch, nearby_landmarks, "Silent Settlement", "No active lexicon at this cell.")
             grid._probe_cache[cache_key] = res
             return res
 
-        if legacy_contrast:
-            ambient_noise = float(cell["infrastructure"] * 0.05 + 0.05)
-            enforce_acoustic_contrast(
-                living_words[:25],
-                min_auditory_margin=0.28,
-                ambient_noise=ambient_noise,
-                rng=np.random.default_rng((x * 73856093) ^ (y * 19349663) ^ int(current_epoch)),
-            )
+        # Cache word objects on grid for instantaneous audio synthesis
+        if not hasattr(grid, "_probe_words_cache"):
+            grid._probe_words_cache = {}
+        grid._probe_words_cache[cache_key] = {w.id: w for w in living_words}
 
         for w_loc in living_words:
             form_w, plain_w, _ = render_and_extract_tones(w_loc.tensor, directional_bias=h, is_tonal=has_tone)
             w_loc._form, w_loc._plain_form = form_w, plain_w
             dialect_lang.add_word(w_loc)
 
-        # 6. Paradigm Discovery
         paradigm = GrammarEngine.discover_grammar_system(dialect_lang)
         vowels, consonants = dialect_lang.extract_phonemic_inventory(paradigm=paradigm)
 
@@ -327,23 +323,38 @@ class DialectProbe:
         sample_noun = true_nouns[0] if true_nouns else living_words[0]
         sample_verb = true_verbs[0] if true_verbs else living_words[0]
 
+        # ---------------------------------------------------------------------
+        # FULL LEXICON PAYLOAD WITH LAZILY EVALUATED HISTORY LOG
+        # ---------------------------------------------------------------------
         lexicon_payload = []
         word_energies = []
+        ancestor_root_map = {w.id: w for w in grid.lexical_manifold}
+
         for w in living_words:
             is_superstrate = (dom_polity and dom_polity.is_standardized and w.id in dom_polity.canonical_roots)
             pos_label = GrammarEngine.get_part_of_speech(w)
             e_w = float(word_energy(w, profile=profile, env=env))
             word_energies.append(e_w)
+
+            # Lazy on-demand history evaluation
+            history_log = w.get_history_log(directional_bias=h)
+
+            root_word = ancestor_root_map.get(w.id, w)
+            root_form = root_word.form
+
             lexicon_payload.append({
-                "id": w.id, "form": w.form, "root_form": w.form, "plain": w.plain_form,
-                "gloss": SemanticTranslator.translate(w, dialect_lang), "pos": pos_label,
+                "id": w.id,
+                "form": w.form,
+                "root_form": root_form,
+                "plain": w.plain_form,
+                "gloss": SemanticTranslator.translate(w, dialect_lang),
+                "pos": pos_label,
                 "grammar_info": {"pos": pos_label},
-                "stratification": "Superstrate (Imperial Lingua Franca)" if is_superstrate else "Substrate (Local Vernacular)",
+                "stratification": "Superstrate (Imperial)" if is_superstrate else "Vernacular Substrate",
                 "energy_cost": round(e_w, 2),
                 "usage_frequency": w.usage_frequency,
+                "history": history_log,
             })
-
-        inv = inventory_size(living_words)
 
         dialect_label = pol["name"] if pol["dominant_id"] >= 0 else "Autonomous Dialect Continuum"
         if cell["is_danger_zone"]:
@@ -392,7 +403,7 @@ class DialectProbe:
                 "has_ejectives": any("ʼ" in c for c in consonants), "has_implosives": any(c in {"ɓ", "ɗ", "ɠ", "ʄ"} for c in consonants),
                 "has_pharyngealized": any("ˁ" in c for c in consonants), "has_tones": has_tone,
                 "tone_inventory": tones_inv, "minimal_tone_pairs": tone_pairs,
-                "nonpulmonic_segments": inv["nonpulmonic"],
+                "nonpulmonic_segments": inventory_size(living_words)["nonpulmonic"],
                 "mean_word_energy": round(float(np.mean(word_energies)), 2),
                 "has_evolved_phonology": any(bool(p_obj.lexicon_phonemes) for p_obj, _ in pol_weights),
             },

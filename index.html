@@ -10,7 +10,6 @@
     header { background: #11151c; border-bottom: 1px solid #21262d; padding: 8px 18px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
     h1 { font-size: 1.05rem; color: #58a6ff; letter-spacing: 0.5px; }
 
-    /* 3-Panel Layout: Left Live Inspector (320px) | Center Map (1fr) | Right Dialect Probe (460px) */
     .workspace { display: grid; grid-template-columns: 320px 1fr 460px; flex: 1; min-height: 0; overflow: hidden; }
 
     .left-panel { background: #0e1217; border-right: 1px solid #21262d; display: flex; flex-direction: column; overflow-y: auto; padding: 12px; gap: 10px; }
@@ -33,6 +32,97 @@
     button.sync-btn { background: #1f6feb; font-size: 0.72rem; padding: 3px 8px; }
     button.sync-btn:hover { background: #388bfd; }
 
+    /* Audio Playback Buttons */
+    .audio-btn {
+      background: transparent;
+      border: 1px solid #30363d;
+      color: #79c0ff;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      line-height: 1.2;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+    .audio-btn:hover {
+      background: #1f3547;
+      color: #58a6ff;
+      transform: scale(1.1);
+    }
+    .audio-btn:active {
+      transform: scale(0.95);
+    }
+      /* Etymological History Modal */
+    .history-modal-backdrop {
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .history-modal {
+      background: #11151c;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      width: 520px;
+      max-width: 90vw;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    }
+    .history-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #21262d;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .history-body {
+      padding: 14px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .history-node {
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 5px;
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: relative;
+    }
+    .history-node::before {
+      content: "↓";
+      position: absolute;
+      top: -14px;
+      left: 20px;
+      color: #58a6ff;
+      font-size: 0.8rem;
+    }
+    .history-node:first-child::before {
+      display: none;
+    }
+    .history-btn {
+      background: #21262d;
+      color: #8b949e;
+      border: 1px solid #30363d;
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-size: 0.68rem;
+      cursor: pointer;
+    }
+    .history-btn:hover {
+      color: #58a6ff;
+      border-color: #58a6ff;
+    }
+
     .inspector-body { padding: 12px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; transition: opacity 0.15s ease; }
     .inspector-body.is-loading { opacity: 0.55; pointer-events: none; }
 
@@ -49,14 +139,17 @@
     .stat-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.78rem; }
     .stat-val { font-weight: 600; color: #f0f6fc; }
 
-    /* Fixed 2-Line Migration Box to prevent layout jumping */
     .migration-box { min-height: 2.3em; font-size: 0.72rem; color: #79c0ff; line-height: 1.25; word-break: break-word; }
 
     .tag-cloud { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-    .tag { background: #161b22; border: 1px solid #30363d; color: #79c0ff; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: 500; }
-    .tag-ejective { background: #3d1c1c; border: 1px solid #f85149; color: #ff7b72; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; }
-    .tag-implosive { background: #1c352d; border: 1px solid #3fb950; color: #7ee787; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; }
-    .tag-emphatic { background: #36291a; border: 1px solid #d29922; color: #f2cc60; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; }
+    .tag { background: #161b22; border: 1px solid #30363d; color: #79c0ff; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: 500; cursor: pointer; user-select: none; transition: transform 0.1s ease, filter 0.15s ease; }
+    .tag:hover { filter: brightness(1.3); transform: scale(1.08); }
+    .tag-ejective { background: #3d1c1c; border: 1px solid #f85149; color: #ff7b72; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; cursor: pointer; user-select: none; transition: transform 0.1s ease, filter 0.15s ease; }
+    .tag-ejective:hover { filter: brightness(1.3); transform: scale(1.08); }
+    .tag-implosive { background: #1c352d; border: 1px solid #3fb950; color: #7ee787; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; cursor: pointer; user-select: none; transition: transform 0.1s ease, filter 0.15s ease; }
+    .tag-implosive:hover { filter: brightness(1.3); transform: scale(1.08); }
+    .tag-emphatic { background: #36291a; border: 1px solid #d29922; color: #f2cc60; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; font-weight: bold; cursor: pointer; user-select: none; transition: transform 0.1s ease, filter 0.15s ease; }
+    .tag-emphatic:hover { filter: brightness(1.3); transform: scale(1.08); }
     .tag-tone { background: #281d38; border: 1px solid #bc8cff; color: #d2a8ff; padding: 3px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: bold; display: flex; align-items: center; gap: 6px; }
 
     .tone-pair-row { background: #161b22; border: 1px solid #21262d; border-radius: 4px; padding: 4px 8px; margin-bottom: 4px; font-size: 0.75rem; }
@@ -139,7 +232,6 @@
         <div class="stat-row"><span>Terrain Permeability:</span><span class="stat-val" id="livePerm">-</span></div>
       </div>
 
-      <!-- 7D MINDSET GENOME (ANIMATES ON HOVER ON LEFT PANEL) -->
       <div class="card">
         <div class="card-title">Local 7D Mindset Genome (Sum = 7.0)</div>
         <div id="liveAttentionBars">
@@ -173,7 +265,7 @@
       </div>
     </div>
 
-    <!-- RIGHT PANEL: Linguistic Deep Probe (Fast Caching) -->
+    <!-- RIGHT PANEL: Linguistic Deep Probe -->
     <div class="right-panel">
       <div class="control-deck">
         <div class="deck-row">
@@ -251,7 +343,7 @@
 
           <div class="card">
             <div class="card-title">
-              <span>Phonemic Inventory</span>
+              <span>Phonemic Inventory (Click symbol to hear)</span>
               <span class="badge" style="background:#21262d; color:#79c0ff;" id="phonemeCountBadge">0 Phonemes</span>
             </div>
             <div style="font-size:0.7rem; color:#8b949e;">Vowels:</div>
@@ -281,6 +373,19 @@
 
   <div class="ticker" id="tickerDisplay">Connecting to EvoLangDiff simulation server...</div>
 
+  <div id="historyModal" class="history-modal-backdrop" onclick="closeHistoryModal(event)">
+    <div class="history-modal" onclick="event.stopPropagation()">
+      <div class="history-header">
+        <div>
+          <span id="histWordTitle" style="color:#7ee787; font-weight:bold; font-size:1rem;">-</span>
+          <span id="histWordGloss" style="color:#f2cc60; margin-left:6px; font-size:0.85rem;">-</span>
+        </div>
+        <button class="secondary" style="padding:2px 8px;" onclick="closeHistoryModal()">✕</button>
+      </div>
+      <div class="history-body" id="histTimeline"></div>
+    </div>
+  </div>
+
   <script>
     let gridData = null;
     let selectedX = 32, selectedY = 32;
@@ -290,6 +395,28 @@
     let probeRipple = null;
     let cityFoundingPulses = [];
     let smoothedFps = 0;
+
+    // --- AUDIO SYNTHESIS PLAYBACK ENGINE ---
+    function playWordAudio(wordId) {
+      if (!gridData) return;
+      const url = `/api/audio?x=${selectedX}&y=${selectedY}&word_id=${wordId}&epoch=${gridData.epoch || 0}`;
+      playAudioUrl(url);
+    }
+
+    function playPhonemeAudio(phoneme) {
+      const clean = encodeURIComponent(phoneme);
+      const url = `/api/audio?phoneme=${clean}`;
+      playAudioUrl(url);
+    }
+
+    function playAudioUrl(url) {
+      try {
+        const audio = new Audio(url);
+        audio.play().catch(e => console.warn("Audio play prevented:", e));
+      } catch (e) {
+        console.error("Audio playback error:", e);
+      }
+    }
 
     const staticMapCanvas = document.createElement('canvas');
     staticMapCanvas.width = 600;
@@ -604,15 +731,17 @@
 
       safeSet('phonemeCountBadge', `${d.phonology.total_phonemes} Phonemes`);
       const vWrap = document.getElementById('probeVowels');
-      vWrap.innerHTML = d.phonology.vowels.map(v => `<span class="tag">/${v}/</span>`).join('');
+      vWrap.innerHTML = d.phonology.vowels.map(v => 
+        `<span class="tag" onclick="playPhonemeAudio('${v}')" title="Click to hear vowel">/${v}/ 🔊</span>`
+      ).join('');
 
       const cWrap = document.getElementById('probeConsonants');
       cWrap.innerHTML = d.phonology.consonants.map(c => {
-        if (c.includes('ʼ')) return `<span class="tag-ejective">/${c}/</span>`;
-        if (['ɓ', 'ɗ', 'ɠ', 'ʄ'].includes(c)) return `<span class="tag-implosive">/${c}/</span>`;
-        if (c.includes('ˁ')) return `<span class="tag-emphatic">/${c}/</span>`;
-        if (['ʘ', 'ǀ', 'ǃ', 'ǂ', 'ǁ'].some(ck => c.includes(ck))) return `<span class="tag" style="background:#3d1a3a; color:#f778ba; border-color:#d23588;">/${c}/</span>`;
-        return `<span class="tag">/${c}/</span>`;
+        let tagClass = "tag";
+        if (c.includes('ʼ')) tagClass = "tag-ejective";
+        else if (['ɓ', 'ɗ', 'ɠ', 'ʄ'].includes(c)) tagClass = "tag-implosive";
+        else if (c.includes('ˁ')) tagClass = "tag-emphatic";
+        return `<span class="${tagClass}" onclick="playPhonemeAudio('${c}')" title="Click to hear consonant">/${c}/ 🔊</span>`;
       }).join('');
 
       currentLexicon = d.lexicon || [];
@@ -635,6 +764,40 @@
       return "badge-part";
     }
 
+    function playHistoryAudio(wordId, stageIdx) {
+      if (!gridData) return;
+      const url = `/api/audio?x=${selectedX}&y=${selectedY}&word_id=${wordId}&stage_idx=${stageIdx}&epoch=${gridData.epoch || 0}`;
+      playAudioUrl(url);
+    }
+
+    function showHistory(wordId) {
+      const w = currentLexicon.find(item => item.id === wordId);
+      if (!w || !w.history) return;
+
+      document.getElementById('histWordTitle').innerText = `/${w.form}/`;
+      document.getElementById('histWordGloss').innerText = `«${w.gloss}»`;
+
+      const tLine = document.getElementById('histTimeline');
+      tLine.innerHTML = w.history.map((h, i) => `
+        <div class="history-node">
+          <div>
+            <div style="display:flex; align-items:baseline; gap:6px;">
+              <span style="color:#7ee787; font-weight:bold; font-size:0.9rem;">/${h.form}/</span>
+              <button class="audio-btn" onclick="playHistoryAudio(${w.id}, ${h.stage_idx})" title="Listen to this epoch">🔊</button>
+            </div>
+            <span style="font-size:0.7rem; color:#8b949e;">${h.event}</span>
+          </div>
+          <span class="snapshot-tag">Epoch ${h.epoch}</span>
+        </div>
+      `).join('');
+
+      document.getElementById('historyModal').style.display = 'flex';
+    }
+
+    function closeHistoryModal() {
+      document.getElementById('historyModal').style.display = 'none';
+    }
+
     function renderLexiconList(list) {
       const lWrap = document.getElementById('probeLexicon');
       if (!lWrap) return;
@@ -649,7 +812,8 @@
         return `
           <div class="word-item">
             <div class="word-main">
-              <span style="color:#7ee787; font-weight:bold; font-size:0.85rem;">/${w.form}/</span>
+              <button class="audio-btn" onclick="playWordAudio(${w.id})" title="Click to listen">🔊</button>
+              <span style="color:#7ee787; font-weight:bold; font-size:0.85rem; cursor:pointer;" onclick="playWordAudio(${w.id})" title="Click to listen">/${w.form}/</span>
               <span style="color:#f2cc60; font-weight:500;">«${w.gloss}»</span>
               <span class="badge ${getBadgeClass(w.pos)}">${w.pos}</span>
               ${hasCls ? `<span class="badge badge-cls">${w.grammar_info.class}</span>` : ''}
@@ -657,7 +821,10 @@
               ${isVerb ? `<span class="badge badge-inf">INF</span>` : ''}
             </div>
             <div class="word-meta">
-              <span>Root: /${w.root_form || w.plain}/</span>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <span style="font-size:0.65rem; color:#6e7681;">Root: /${w.root_form || w.plain}/</span>
+                <button class="history-btn" onclick="showHistory(${w.id})" title="View diachronic evolution tree">📜 History</button>
+              </div>
               <span style="font-size:0.65rem; color:#6e7681;">U: ${w.usage_frequency || 1.0} | ${w.energy_cost} J</span>
             </div>
           </div>
@@ -1063,7 +1230,6 @@
       safeSet('liveDanger', perm < 0.15 ? "Contested Frontier [Active Conflict]" : "Secure / Open");
       safeSet('livePerm', perm.toFixed(2));
 
-      // Fixed 2-Line Migration Display
       const migBox = document.getElementById('liveMigration');
       if (migBox) {
         if (pop < 0.005 || elev <= 0.0) {
@@ -1094,7 +1260,6 @@
         }
       }
 
-      // 7D MINDSET GENOME LIVE UPDATE ON LEFT PANEL
       const aWrap = document.getElementById('liveAttentionBars');
       if (aWrap) {
         const cellA = pAttn(y, x);

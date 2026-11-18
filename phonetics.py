@@ -1,6 +1,6 @@
 """
 phonetics.py — Minimal-Parameter Zone-Energy + Airflow Phonetics,
-2D (F1, F2) Vowel Triangle Acoustics, and Autonomous Sound Change.
+Acoustic Formants & Bark Filterbank Integration, and Autonomous Sound Change.
 Part of the EvoLangDiff Engine.
 """
 
@@ -10,6 +10,8 @@ import math
 from typing import NamedTuple, Sequence
 from collections import Counter
 import numpy as np
+
+from acoustics import AcousticEngine, AuditoryFeatures, BARK_CENTERS
 
 # =============================================================================
 # 14 CORE PHYSICAL PARAMETERS
@@ -99,12 +101,17 @@ def click_gate(g: np.ndarray) -> np.ndarray:
 
 def _vowel_formants(g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
-    Acoustic triangle: F1 = jaw/openness (g4).
-    F2 = frontness (1-g5) lowered by lip rounding (g1), tapering naturally toward /a/ as jaw opens.
+    Acoustic triangle: Normalized F1 and F2 in [0, 1].
+    Directly mirrors the perturbation acoustics in AcousticEngine.
     """
-    f1 = g[..., 4]
-    raw_f2 = (1.0 - g[..., 5]) * (1.0 - 0.60 * g[..., 1])
-    f2 = 0.50 + (1.0 - 0.60 * f1) * (raw_f2 - 0.50)
+    g0 = g[..., 0]
+    g1 = g[..., 1]
+    g4 = g[..., 4]
+    g5 = g[..., 5]
+
+    f1 = (730.0 * (g4 ** 1.35) * (0.35 + 0.65 * g0)) / 750.0
+    raw_f2 = 1.0 - g5 * (1.0 - 0.52 * g1)
+    f2 = 0.50 + (1.0 - 0.50 * g4) * (raw_f2 - 0.50)
     return f1, f2
 
 
@@ -124,6 +131,8 @@ def sensory_distance(g1: np.ndarray, g2: np.ndarray) -> np.ndarray:
 def trajectory_distance(g1: np.ndarray, g2: np.ndarray) -> float:
     a1 = np.asarray(g1, dtype=np.float32)[..., :9]
     a2 = np.asarray(g2, dtype=np.float32)[..., :9]
+    if a1.ndim == 1: a1 = a1[None, :]
+    if a2.ndim == 1: a2 = a2[None, :]
     L1, L2 = len(a1), len(a2)
     if L1 == 0 or L2 == 0:
         return 1.0
@@ -173,7 +182,7 @@ def continuous_acoustic_power(g: np.ndarray, rho_air: float = 1.0, env=None, inc
     )
     sib_turb = (1.0 - v_reg) * np.exp(-(((a_oral - 0.06) / 0.030) ** 2))
     hf_noise = 0.85 * np.tanh(1.15 * sib_turb * _sig(10.0 * (g7 - 0.42)) * (0.35 + 0.65 * np.exp(-((g3 - 0.25) ** 2) / 0.04)))
-    power = vowel_rad + sonorant_rad + hf_noise
+    power = (vowel_rad + sonorant_rad + hf_noise) * math.sqrt(max(0.1, rho_air))
     if not include_transients:
         return power
 
@@ -286,23 +295,30 @@ class PhonemeEnergy(NamedTuple):
 class Phoneme:
     __slots__ = ('_vector', '_ipa', '_energy', '_hash', '_voc')
 
-    def __init__(self, vector: Sequence[float] | np.ndarray, duration: float | None = None):
-        v = list(vector)
+    def __init__(self, vector: Sequence[float] | np.ndarray | Phoneme, duration: float | None = None):
+        if isinstance(vector, Phoneme):
+            v = list(vector._vector)
+        else:
+            v = list(vector)
+
         if len(v) == 9:
             v.append(float(duration) if duration is not None else 1.0)
         elif len(v) == 10 and duration is not None:
             v[9] = float(duration)
         elif len(v) == 8:
-            v.append(0.50)
+            v.append(0.50)  # neutral vertical larynx height
             v.append(float(duration) if duration is not None else 1.0)
 
         g_clamped = [max(0.0, min(1.0, float(v[i]))) for i in range(9)]
         tau_clamped = max(0.01, min(3.0, float(v[9])))
-        self._vector = np.array(g_clamped + [tau_clamped], dtype=np.float32)
+        vec = np.array(g_clamped + [tau_clamped], dtype=np.float32)
+        vec.flags.writeable = False  # Enforce true immutability for hash safety
+        self._vector = vec
+
         self._ipa = None
         self._energy = None
         self._voc = None
-        self._hash = hash(tuple(int(x * 100) for x in self._vector))
+        self._hash = hash(self._vector.tobytes())
 
     @property
     def vector(self) -> np.ndarray: return self._vector
@@ -312,11 +328,13 @@ class Phoneme:
     def duration(self) -> float: return float(self._vector[9])
     @property
     def tau(self) -> float: return self.duration
+
     @property
     def voc(self) -> float:
         if self._voc is None:
             self._voc = float(continuous_vocality(self._vector[:9]))
         return self._voc
+
     @property
     def is_vowel(self) -> bool: return self.voc >= 0.50
 
@@ -335,8 +353,15 @@ class Phoneme:
             a_oral = float(_oral_opening(g))
             v_reg = 1.0 / (1.0 + math.exp(-max(-30.0, min(30.0, 25.0 * (self.voc - 0.50)))))
             e_mot = round(float(zone_energy(g)) * (tau ** 1.08), 3)
-            air = round((0.14 + 0.50 * a_oral * (1.0 - 0.85 * v_reg) + 0.10 * g[6]) * (0.35 + g[7]) * tau, 3)
-            v_drag = round(K_VDRAG * math.exp(-((g[7] - 0.40) ** 2) / 0.02) * math.exp(-16.0 * a_oral) * ((1.0 - g[6]) ** 2) * tau, 3)
+
+            turb = (1.0 - v_reg) * math.exp(-(((a_oral - 0.06) / 0.065) ** 2))
+            raw_flow = (0.14 + 0.50 * a_oral * (1.0 - 0.85 * v_reg) + 0.10 * g[6]) * (0.35 + g[7]) + K_FLOW * turb * (0.50 + g[7])
+            ejective_gate = float(_sig(25.0 * (0.15 - g[7])) * _sig(15.0 * (g[8] - 0.65)) * (1.0 - v_reg))
+            implosive_gate = float(_sig(15.0 * (0.35 - g[8])) * (1.0 - v_reg))
+            c_gate = float(click_gate(g))
+            air = round(((1.0 - c_gate) * (1.0 - ejective_gate) * (1.0 - 0.60 * implosive_gate) * raw_flow + c_gate * 0.05) * tau, 3)
+
+            v_drag = round(K_VDRAG * math.exp(-((g[7] - 0.40) ** 2) / 0.02) * math.exp(-16.0 * a_oral) * ((1.0 - g[6]) ** 2) * (0.75 + 0.50 * (1.0 - g[4])) * tau, 3)
             aud = round(float(continuous_acoustic_power(g)), 3)
             self._energy = PhonemeEnergy(e_mot, air, v_drag, aud)
         return self._energy
@@ -351,9 +376,16 @@ class Phoneme:
             return Phoneme(new_v)
         return Phoneme(self._vector.copy())
 
+    def synthesize_wav(self, base_f0: float = 120.0) -> bytes:
+        """Synthesizes playable 16-bit 16kHz WAV audio bytes for this phoneme."""
+        return AcousticEngine.synthesize_wav_pcm([self._vector], base_f0=base_f0)
+
     def __hash__(self) -> int: return self._hash
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Phoneme) and np.array_equal(self._vector, other._vector)
+    def __len__(self) -> int: return len(self._vector)
+    def __getitem__(self, idx: int) -> float: return float(self._vector[idx])
+    def __iter__(self): return iter(self._vector)
     def __repr__(self) -> str: return f"Phoneme(/{self.ipa}/, tau={self.duration:.2f})"
 
 
@@ -361,9 +393,15 @@ class Phoneme:
 # 3. TRANSITION COST, COARTICULATION & SYLLABLE REPAIR
 # -----------------------------------------------------------------------------
 
-def transition_cost(p1: Phoneme | np.ndarray, p2: Phoneme | np.ndarray, tau1: float = 1.0, tau2: float = 1.0) -> float:
-    g1 = p1.g if hasattr(p1, "g") else p1[:9]
-    g2 = p2.g if hasattr(p2, "g") else p2[:9]
+def transition_cost(
+    p1: Phoneme | np.ndarray,
+    p2: Phoneme | np.ndarray,
+    tau1: float = 1.0,
+    tau2: float = 1.0,
+    s_comp: float = 0.50,
+) -> float:
+    g1 = p1.g if hasattr(p1, "g") else np.asarray(p1, dtype=np.float32)[:9]
+    g2 = p2.g if hasattr(p2, "g") else np.asarray(p2, dtype=np.float32)[:9]
     t1 = p1.duration if hasattr(p1, "duration") else tau1
     t2 = p2.duration if hasattr(p2, "duration") else tau2
 
@@ -381,20 +419,32 @@ def transition_cost(p1: Phoneme | np.ndarray, p2: Phoneme | np.ndarray, tau1: fl
     min_tau = max(0.10, min(t1, t2))
     kinetic = float(np.sum(eff_inertia * (diff ** 2)) / (min_tau ** 0.85))
     dist = float(sensory_distance(g1, g2))
+    cluster_weight = 1.0 + same_class * (0.45 - 0.85 * s_comp)
     ocp_friction = 2.50 * math.exp(-5.0 * dist) * same_class
-    return round(kinetic + ocp_friction, 3)
+    return round(float((kinetic + ocp_friction) * cluster_weight), 3)
 
 
-def coarticulation_force(g, prev_g, next_g, tau: float = 1.0, tau_prev: float = 1.0, tau_next: float = 1.0,
-                         k: float = 0.05, d_reach: float = 0.70) -> np.ndarray:
+def coarticulation_force(
+    g: Phoneme | np.ndarray,
+    prev_g: Phoneme | np.ndarray | None,
+    next_g: Phoneme | np.ndarray | None,
+    tau: float = 1.0,
+    tau_prev: float = 1.0,
+    tau_next: float = 1.0,
+    k: float = 0.05,
+    d_reach: float = 0.70,
+) -> np.ndarray:
+    g_arr = np.asarray(g.g if hasattr(g, "g") else g, dtype=np.float32)[:9]
     f = np.zeros(9, dtype=np.float32)
+
     for nb, t_nb in ((prev_g, tau_prev), (next_g, tau_next)):
         if nb is None:
             continue
         m = max(0.10, min(float(tau), float(t_nb)))
-        nb = np.asarray(nb, dtype=np.float32)[:9]
-        reach = math.exp(-(float(sensory_distance(g, nb)) / d_reach) ** 2)
-        f -= k * reach * INERTIA_DIAG * (g - nb) / (m ** 0.85)
+        nb_arr = np.asarray(nb.g if hasattr(nb, "g") else nb, dtype=np.float32)[:9]
+        reach = math.exp(-(float(sensory_distance(g_arr, nb_arr)) / d_reach) ** 2)
+        f -= k * reach * INERTIA_DIAG * (g_arr - nb_arr) / (m ** 0.85)
+
     return f
 
 
@@ -420,6 +470,7 @@ def _transition_costs(G1, G2, t1, t2, voc1, voc2, s_comp: float = 0.50) -> np.nd
 def repair_phonemes(phonemes: list[Phoneme], profile=None, max_passes: int = 4) -> list[Phoneme]:
     s_comp = getattr(profile, "syllable_complexity", 0.50) if profile else 0.50
     cluster_budget = 0.90 + 3.50 * s_comp
+    phonemes = list(phonemes)
 
     for _ in range(max_passes):
         if len(phonemes) <= 1:
@@ -439,7 +490,7 @@ def repair_phonemes(phonemes: list[Phoneme], profile=None, max_passes: int = 4) 
                 continue
 
             same_class = p1.voc * p2.voc + (1.0 - p1.voc) * (1.0 - p2.voc)
-            cost = transition_cost(p1, p2) * (0.15 + 0.85 * same_class)
+            cost = transition_cost(p1, p2, s_comp=s_comp) * (0.15 + 0.85 * same_class)
             if cost > cluster_budget:
                 tot_tau = p1.duration + p2.duration
                 w1 = p1.duration / tot_tau
@@ -463,16 +514,25 @@ def repair_phonemes(phonemes: list[Phoneme], profile=None, max_passes: int = 4) 
     return phonemes
 
 
-def enforce_acoustic_contrast(words: list, min_auditory_margin: float = 0.32, ambient_noise: float = 0.10, rng=None) -> None:
+def enforce_acoustic_contrast(
+    words: list,
+    min_auditory_margin: float = 0.32,
+    ambient_noise: float = 0.10,
+    rng=None,
+) -> None:
     n = len(words)
     if n < 2:
         return
+    r = _as_np_rng(rng)
+
     for i in range(n):
         w1 = words[i]
         v1 = [idx for idx, p in enumerate(w1.phonemes) if p.is_vowel]
         if not v1:
             continue
-        g1 = w1.phonemes[v1[0]].g
+        v1_idx = v1[0]
+        g1 = w1.phonemes[v1_idx].g
+
         for j in range(i + 1, n):
             w2 = words[j]
             if w1.id == w2.id or w1.vector.distance_to(w2.vector) < 0.15:
@@ -480,26 +540,49 @@ def enforce_acoustic_contrast(words: list, min_auditory_margin: float = 0.32, am
             v2 = [idx for idx, p in enumerate(w2.phonemes) if p.is_vowel]
             if not v2:
                 continue
-            g2 = w2.phonemes[v2[0]].g
+            v2_idx = v2[0]
+            g2 = w2.phonemes[v2_idx].g
+
             d_aud = float(sensory_distance(g1, g2))
             eff_margin = min_auditory_margin + ambient_noise * 0.50
             if d_aud < eff_margin:
                 diff = g1 - g2
                 norm_e = float(np.linalg.norm(diff))
                 if norm_e < 1e-4:
-                    h_hat = np.random.default_rng().normal(0.0, 1.0, size=9).astype(np.float32)
+                    h_hat = r.normal(0.0, 1.0, size=9).astype(np.float32)
                     h_hat /= (np.linalg.norm(h_hat) + 1e-8)
                 else:
                     h_hat = diff / norm_e
+
                 w_mid = compute_metric_weights(0.50 * (g1 + g2))
                 step_a = 0.40 * (eff_margin - d_aud) / (2.0 * math.sqrt(float(np.sum(w_mid * (h_hat ** 2)))) + 1e-4)
-                w1.phonemes[v1[0]] = Phoneme(np.clip(g1 + step_a * h_hat, 0.05, 0.95), duration=w1.phonemes[v1[0]].duration)
-                w2.phonemes[v2[0]] = Phoneme(np.clip(g2 - step_a * h_hat, 0.05, 0.95), duration=w2.phonemes[v2[0]].duration)
-                w1._invalidate_cache()
-                w2._invalidate_cache()
+
+                p1_new = Phoneme(np.clip(g1 + step_a * h_hat, 0.05, 0.95), duration=w1.phonemes[v1_idx].duration)
+                p2_new = Phoneme(np.clip(g2 - step_a * h_hat, 0.05, 0.95), duration=w2.phonemes[v2_idx].duration)
+
+                w1_ph = list(w1.phonemes)
+                w1_ph[v1_idx] = p1_new
+                w1.phonemes = w1_ph
+
+                w2_ph = list(w2.phonemes)
+                w2_ph[v2_idx] = p2_new
+                w2.phonemes = w2_ph
+
+                g1 = p1_new.g
 
 
-def word_energy(word, profile=None, env=None, cultural_attention: Sequence[float] | None = None, cohort_sample: Sequence = None) -> float:
+def word_energy(
+    word,
+    profile=None,
+    env=None,
+    cultural_attention: Sequence[float] | None = None,
+    base_f0: float = 120.0,
+    **kwargs,
+) -> float:
+    """
+    Computes total biomechanical and acoustic communication cost.
+    High auditory transmission clarity directly offsets motor effort on the Pareto frontier.
+    """
     phonemes = word.phonemes
     n = len(phonemes)
     if n == 0:
@@ -511,7 +594,7 @@ def word_energy(word, profile=None, env=None, cultural_attention: Sequence[float
 
     s_idx = getattr(profile, "synthesis_index", 0.50) if profile else 0.50
     s_comp = getattr(profile, "syllable_complexity", 0.50) if profile else 0.50
-    _, speed_gain = _societal_drives(profile=profile, env=env, cultural_attention=cultural_attention)
+    power_gain, speed_gain = _societal_drives(profile=profile, env=env, cultural_attention=cultural_attention)
 
     e_seg = float(np.sum(_segment_biomech_energy(G, taus=taus, env=env, profile=profile, cultural_attention=cultural_attention)))
     e_trans = 0.0
@@ -533,7 +616,18 @@ def word_energy(word, profile=None, env=None, cultural_attention: Sequence[float
         for p0, p1, p2 in pitches:
             e_tone += ((p1 - p0) ** 2 + (p2 - p1) ** 2 + (p1 ** 2) * 0.2) * 0.18
 
-    return round(float(e_seg + e_trans + e_length + e_tone), 3)
+    # Auditory Clarity Reward from AcousticEngine:
+    # Formant prominence and high-frequency bursts directly offset motor effort
+    af = AcousticEngine.get_auditory_features([p.vector for p in phonemes], base_f0=base_f0)
+    clarity_payoff = 0.35 * power_gain * af.clarity_score
+
+    return round(float(e_seg + e_trans + e_length + e_tone - clarity_payoff), 3)
+
+
+def synthesize_word_wav(word, base_f0: float = 120.0) -> bytes:
+    """Synthesizes playable 16-bit 16kHz WAV audio bytes directly from word phonemes."""
+    vectors = [p.vector for p in getattr(word, "phonemes", [])]
+    return AcousticEngine.synthesize_wav_pcm(vectors, base_f0=base_f0)
 
 
 # -----------------------------------------------------------------------------
@@ -550,7 +644,9 @@ def resolve_chao_tone(pitch: tuple[float, float, float] | np.ndarray, duration: 
     return f"{_CHAO_BARS[c0]}{_CHAO_BARS[c2]}"
 
 
-def parse_sonority_prosody(X: np.ndarray, directional_bias: float = 0.50) -> tuple[list[tuple[int, int]], int, list[tuple[float, float, float]], list[float]]:
+def parse_sonority_prosody(
+    X: np.ndarray, directional_bias: float = 0.50
+) -> tuple[list[tuple[int, int]], int, list[tuple[float, float, float]], list[float]]:
     L = len(X)
     if L == 0:
         return [], 0, [], []
@@ -568,7 +664,11 @@ def parse_sonority_prosody(X: np.ndarray, directional_bias: float = 0.50) -> tup
     boundaries.append(L)
 
     syl_slices = [(boundaries[k], boundaries[k + 1]) for k in range(len(boundaries) - 1)]
-    syl_masses = [sum(X[i, 9] * son[i] for i in range(st, en)) * (1.0 + (k / max(1, len(syl_slices) - 1)) * (directional_bias - 0.50) * 0.30) for k, (st, en) in enumerate(syl_slices)]
+    syl_masses = [
+        sum(X[i, 9] * son[i] for i in range(st, en))
+        * (1.0 + (k / max(1, len(syl_slices) - 1)) * (directional_bias - 0.50) * 0.30)
+        for k, (st, en) in enumerate(syl_slices)
+    ]
     stressed_idx = int(np.argmax(syl_masses))
 
     trajectories, nuc_durs = [], []
@@ -579,16 +679,18 @@ def parse_sonority_prosody(X: np.ndarray, directional_bias: float = 0.50) -> tup
         coda_g7 = float(X[en - 1, 7]) if en - 1 > pk else 0.40
         f2 = f0 + 0.40 * (0.40 - coda_g7) - 0.15
         trajectories.append((round(f0, 2), round(f1, 2), round(f2, 2)))
-        nuc_durs.append(float(X[pk, 9]))
+        nuc_durs.append(float(X[pk, 9]) if X.shape[1] > 9 else 1.0)
 
     return syl_slices, stressed_idx, trajectories, nuc_durs
 
 
-def render_and_extract_tones(X: np.ndarray, directional_bias: float = 0.50, is_tonal: bool = False) -> tuple[str, str, str]:
+def render_and_extract_tones(
+    X: np.ndarray, directional_bias: float = 0.50, is_tonal: bool = False
+) -> tuple[str, str, str]:
     L = len(X)
     if L == 0:
         return "", "", ""
-    syl_slices, stressed_idx, pitches, _ = parse_sonority_prosody(X, directional_bias=directional_bias)
+    syl_slices, stressed_idx, pitches, nuc_durs = parse_sonority_prosody(X, directional_bias=directional_bias)
     son_all = sonority_batch(X[:, :9])
     parts, plain_parts = [], []
     assigned_tone = ""
@@ -599,18 +701,28 @@ def render_and_extract_tones(X: np.ndarray, directional_bias: float = 0.50, is_t
         peak_offset = int(np.argmax(son_all[st:en]))
         dedup = []
         for off in range(en - st):
-            sym = resolve_tract_vector(X[st + off, :9], is_nucleus=(off == peak_offset))
+            curr_idx = st + off
+            sym = resolve_tract_vector(X[curr_idx, :9], is_nucleus=(off == peak_offset))
+            dur = float(X[curr_idx, 9]) if X.shape[1] > 9 else 1.0
+
+            # Preserve length mark for long monophthongs
+            if sym in _VOWEL_SET and dur >= 1.35 and not sym.endswith("ː"):
+                sym = f"{sym}ː"
+
             if dedup and dedup[-1] == sym:
                 if sym in _VOWEL_SET and not dedup[-1].endswith("ː"):
                     dedup[-1] = f"{dedup[-1]}ː"
                 continue
             dedup.append(sym)
+
         syl_str = "".join(dedup)
         plain_parts.append(syl_str.replace("ː", ""))
+
         if is_tonal and (k == stressed_idx or len(syl_slices) == 1):
-            tone = resolve_chao_tone(pitches[k])
+            tone = resolve_chao_tone(pitches[k], duration=nuc_durs[k])
             syl_str += tone
             assigned_tone = tone
+
         parts.append(syl_str)
 
     return "".join(parts), "".join(plain_parts), assigned_tone
@@ -626,7 +738,14 @@ def cluster_contrastive_phonemes(words: Sequence) -> tuple[list[str], list[str]]
         u = float(getattr(w, "usage_frequency", 1.0))
         root_id = getattr(w.derivation, "root_family_id", w.id)
         for p in w.phonemes:
-            clean = p.ipa.replace("ː", "").replace("˥", "").replace("˦", "").replace("˧", "").replace("˨", "").replace("˩", "")
+            clean = (
+                p.ipa.replace("ː", "")
+                .replace("˥", "")
+                .replace("˦", "")
+                .replace("˧", "")
+                .replace("˨", "")
+                .replace("˩", "")
+            )
             if p.is_vowel:
                 v_usage[clean] += u
                 v_roots.setdefault(clean, set()).add(root_id)
@@ -636,22 +755,35 @@ def cluster_contrastive_phonemes(words: Sequence) -> tuple[list[str], list[str]]
 
     attractor_dict = dict(_CANONICAL_ATTRACTORS)
 
-    def extract_attractor_modes(usage_dict: dict[str, float], root_dict: dict[str, set[int]], min_margin: float) -> list[str]:
+    def extract_attractor_modes(
+        usage_dict: dict[str, float], root_dict: dict[str, set[int]], min_margin: float, is_v: bool
+    ) -> list[str]:
         ranked = sorted(usage_dict.keys(), key=lambda sym: usage_dict[sym], reverse=True)
         modes: list[str] = []
+        mode_vecs: list[np.ndarray] = []
+
         for sym in ranked:
-            if len(root_dict.get(sym, set())) < 2 and usage_dict[sym] < 12.0:
+            min_u = 1.8 if not is_v else 2.5
+            if len(root_dict.get(sym, set())) < 2 and usage_dict[sym] < min_u:
                 continue
-            if sym not in attractor_dict:
+
+            base_sym = sym.replace("ʰ", "")
+            if base_sym not in attractor_dict:
                 continue
-            g_cand = np.array(attractor_dict[sym], dtype=np.float32)
-            if not any(float(sensory_distance(g_cand, np.array(attractor_dict[m], dtype=np.float32))) < min_margin for m in modes):
+
+            g_cand = np.array(attractor_dict[base_sym], dtype=np.float32)
+            if "ʰ" in sym:
+                g_cand[7] = 0.75  # Aspiration offset in glottal aperture
+
+            if not any(float(sensory_distance(g_cand, m_vec)) < min_margin for m_vec in mode_vecs):
                 modes.append(sym)
+                mode_vecs.append(g_cand)
+
         return modes
 
     return (
-        extract_attractor_modes(v_usage, v_roots, min_margin=0.38) or ["a", "i", "u"],
-        extract_attractor_modes(c_usage, c_roots, min_margin=0.20) or ["t", "p", "k", "s", "m", "n"],
+        extract_attractor_modes(v_usage, v_roots, min_margin=0.36, is_v=True) or ["a", "i", "u"],
+        extract_attractor_modes(c_usage, c_roots, min_margin=0.18, is_v=False) or ["t", "p", "k", "s", "m", "n"],
     )
 
 
@@ -661,6 +793,7 @@ def render_word_trajectory(X: np.ndarray, directional_bias: float = 0.50) -> tup
 
 class Syllable:
     __slots__ = ('onset', 'nucleus', 'coda', 'stressed', 'pitch')
+
     def __init__(self, onset, nucleus, coda, stressed=False, pitch=(0.0, 0.0, 0.0)):
         self.onset = onset
         self.nucleus = nucleus
@@ -682,15 +815,20 @@ class Syllable:
     @property
     def form(self) -> str:
         pref = "ˈ" if self.stressed else ""
-        return f"{pref}{''.join(p.ipa for p in self.onset)}{''.join(p.ipa for p in self.nucleus)}{''.join(p.ipa for p in self.coda)}"
+        return (
+            f"{pref}"
+            f"{''.join(p.ipa for p in self.onset)}"
+            f"{''.join(p.ipa for p in self.nucleus)}"
+            f"{''.join(p.ipa for p in self.coda)}"
+        )
 
 
-def syllabify(target, syllable_complexity: float = 0.50) -> list[Syllable]:
+def syllabify(target, syllable_complexity: float = 0.50, directional_bias: float = 0.50) -> list[Syllable]:
     raw = target.phonemes if hasattr(target, "phonemes") else list(target)
     if not raw:
         return []
     X = np.stack([p.vector for p in raw], axis=0)
-    slices, stressed_idx, pitches, _ = parse_sonority_prosody(X)
+    slices, stressed_idx, pitches, _ = parse_sonority_prosody(X, directional_bias=directional_bias)
     syls = []
     for k, (st, en) in enumerate(slices):
         syl_p = raw[st:en]
@@ -700,13 +838,15 @@ def syllabify(target, syllable_complexity: float = 0.50) -> list[Syllable]:
         else:
             first_v = syl_p.index(nuc[0])
             last_v = len(syl_p) - 1 - list(reversed(syl_p)).index(nuc[-1])
-            syls.append(Syllable(
-                onset=syl_p[:first_v],
-                nucleus=syl_p[first_v:last_v + 1],
-                coda=syl_p[last_v + 1:],
-                stressed=(k == stressed_idx),
-                pitch=pitches[k],
-            ))
+            syls.append(
+                Syllable(
+                    onset=syl_p[:first_v],
+                    nucleus=syl_p[first_v : last_v + 1],
+                    coda=syl_p[last_v + 1 :],
+                    stressed=(k == stressed_idx),
+                    pitch=pitches[k],
+                )
+            )
     return syls
 
 
@@ -714,7 +854,10 @@ def assign_stress(syllables: list[Syllable], directional_bias: float = 0.50) -> 
     if not syllables:
         return
     n = len(syllables)
-    scores = [s.mass * (1.0 + (i / max(1, n - 1)) * (directional_bias - 0.50) * 0.40) for i, s in enumerate(syllables)]
+    scores = [
+        s.mass * (1.0 + (i / max(1, n - 1)) * (directional_bias - 0.50) * 0.40)
+        for i, s in enumerate(syllables)
+    ]
     str_idx = int(np.argmax(scores))
     for i, s in enumerate(syllables):
         s.stressed = (i == str_idx)
@@ -931,7 +1074,7 @@ def readout_batch(G: np.ndarray, vmask: np.ndarray | None = None, chunk: int = 1
         rows = np.flatnonzero(sel)
         A = _ATTRACTOR_MATRIX[idx]
         for s in range(0, len(rows), chunk):
-            r = rows[s:s + chunk]
+            r = rows[s : s + chunk]
             g = G[r]
             d = sensory_distance(A[:, None, :], g[None, :, :])
             out[r] = idx[np.argmin(d, axis=0)]
@@ -969,12 +1112,19 @@ def inventory_size(words: Sequence, min_share: float = 0.005) -> dict:
     keep = n / tot >= min_share
     v = int(np.sum(keep[_V_IDX]))
     c = int(np.sum(keep[_C_IDX]))
-    return {"vowels": v, "consonants": c, "nonpulmonic": int(np.sum(keep & (_NONPULMONIC > 0.5))), "total": v + c}
+    return {
+        "vowels": v,
+        "consonants": c,
+        "nonpulmonic": int(np.sum(keep & (_NONPULMONIC > 0.5))),
+        "total": v + c,
+    }
 
 
 def _as_np_rng(rng):
     if hasattr(rng, "integers"):
         return rng
+    if isinstance(rng, (int, np.integer)):
+        return np.random.default_rng(int(rng))
     if hasattr(rng, "getrandbits"):
         return np.random.default_rng(rng.getrandbits(32))
     return np.random.default_rng()
@@ -1185,9 +1335,9 @@ def sound_change_step(
         old = words[wi].phonemes[pi]
         undo.append((wi, pi, old))
         words[wi].phonemes[pi] = Phoneme(G_new[row], duration=old.duration)
+
     for wi in aff:
-        if hasattr(words[wi], "_invalidate_cache"):
-            words[wi]._invalidate_cache()
+        words[wi].phonemes = words[wi].phonemes  # Synchronizes _morphemes and invalidates syllables/form
 
     tok1, conf1 = local_energy()
     dE = scale * ((tok1 - tok0) + (conf1 - conf0)) + d_inv
@@ -1197,13 +1347,18 @@ def sound_change_step(
         for wi, pi, old in undo:
             words[wi].phonemes[pi] = old
         for wi in aff:
-            if hasattr(words[wi], "_invalidate_cache"):
-                words[wi]._invalidate_cache()
+            words[wi].phonemes = words[wi].phonemes  # Restores _morphemes and invalidates caches
 
     return {
-        "accepted": bool(accept), "kind": kind, "symbol": _ATTRACTOR_SYMBOLS[s], "target": target,
-        "n_tokens": int(len(members)), "n_words": len(aff),
-        "dE": float(dE), "d_token": float(scale * (tok1 - tok0)), "d_conf": float(scale * (conf1 - conf0)),
+        "accepted": bool(accept),
+        "kind": kind,
+        "symbol": _ATTRACTOR_SYMBOLS[s],
+        "target": target,
+        "n_tokens": int(len(members)),
+        "n_words": len(aff),
+        "dE": float(dE),
+        "d_token": float(scale * (tok1 - tok0)),
+        "d_conf": float(scale * (conf1 - conf0)),
         "d_inventory": float(d_inv),
     }
 
@@ -1215,27 +1370,49 @@ def sound_change_step(
 _SEG_ENERGY_CACHE: dict[tuple, np.ndarray] = {}
 
 
-def segment_energy_table(env=None, tau: float = 1.0, profile=None, cultural_attention: Sequence[float] | None = None) -> np.ndarray:
+def segment_energy_table(
+    env=None,
+    tau: float = 1.0,
+    profile=None,
+    cultural_attention: Sequence[float] | None = None,
+) -> np.ndarray:
     alt = round(float(getattr(env, "altitude", 0.0)), 3) if env else 0.0
     hum = round(float(getattr(env, "humidity", 0.50)), 3) if env else 0.50
     temp = round(float(getattr(env, "temperature", 0.50)), 3) if env else 0.50
     veg = round(float(getattr(env, "vegetation", 0.30)), 3) if env else 0.30
     rough = round(float(getattr(env, "roughness", 0.10)), 3) if env else 0.10
     pg, sg = _societal_drives(profile=profile, env=env, cultural_attention=cultural_attention)
+
     key = (alt, hum, temp, veg, rough, round(float(tau), 3), round(pg, 3), round(sg, 3))
     cached = _SEG_ENERGY_CACHE.get(key)
     if cached is not None:
         return cached
 
-    res = _segment_biomech_energy(_ATTRACTOR_MATRIX, taus=float(tau), env=env, profile=profile, cultural_attention=cultural_attention).astype(np.float32)
+    res = _segment_biomech_energy(
+        _ATTRACTOR_MATRIX,
+        taus=float(tau),
+        env=env,
+        profile=profile,
+        cultural_attention=cultural_attention,
+    ).astype(np.float32)
+
     if len(_SEG_ENERGY_CACHE) > 2048:
         _SEG_ENERGY_CACHE.clear()
     _SEG_ENERGY_CACHE[key] = res
     return res
 
 
-def sample_segment(vowel: bool, counts: np.ndarray | None = None, env=None, population: float = 0.5, rng=None,
-                   T: float = 0.07, p_innovate: float = 0.025, profile=None, cultural_attention: Sequence[float] | None = None) -> int:
+def sample_segment(
+    vowel: bool,
+    counts: np.ndarray | None = None,
+    env=None,
+    population: float = 0.5,
+    rng=None,
+    T: float = 0.07,
+    p_innovate: float = 0.025,
+    profile=None,
+    cultural_attention: Sequence[float] | None = None,
+) -> int:
     """
     Draws a segment from an initially empty inventory:
       - Uses intrinsic acoustic clarity and physical energy to seed foundational phonemes (/a, i, u, p, t, k, m, n, s, l/)
@@ -1245,7 +1422,11 @@ def sample_segment(vowel: bool, counts: np.ndarray | None = None, env=None, popu
     idx = _V_IDX if vowel else _C_IDX
     E = segment_energy_table(env, profile=profile, cultural_attention=cultural_attention)[idx]
     slot = _SLOT_COST[idx] * (1.0 + 0.5 * math.tanh(max(0.0, population)))
-    c = np.zeros(len(idx), dtype=np.float64) if counts is None else np.asarray(counts, dtype=np.float64)[idx]
+
+    if counts is not None and len(counts) >= len(_ATTRACTOR_SYMBOLS):
+        c = np.asarray(counts, dtype=np.float64)[idx]
+    else:
+        c = np.zeros(len(idx), dtype=np.float64)
 
     active_mask = c >= 0.5
     n_active = int(np.sum(active_mask))
@@ -1253,25 +1434,26 @@ def sample_segment(vowel: bool, counts: np.ndarray | None = None, env=None, popu
     p_eff = p_innovate + (1.0 - p_innovate) * math.exp(-n_active / k_target)
 
     if c.sum() > 0 and rng.random() >= p_eff:
-        w = c * np.exp(-(E - E.min()) / 0.20)
+        temp_scale = 0.35 if vowel else 1.25
+        w = c * np.exp(-(E - E.min()) / temp_scale)
     else:
         cand_mat = _ATTRACTOR_MATRIX[idx]
+        pwr = continuous_acoustic_power(cand_mat, env=env, include_transients=True)
         if vowel:
             f1, f2 = _vowel_formants(cand_mat)
             disp_corner = 1.50 * ((f1 - 0.55) ** 2) + 1.20 * ((f2 - 0.50) ** 2)
-            prominence = 0.35 * disp_corner
+            prominence = 0.35 * disp_corner + 0.15 * pwr
         else:
-            pwr = continuous_acoustic_power(cand_mat, include_transients=True)
-            prominence = 0.22 * pwr
+            prominence = 0.28 * pwr
 
         repulsion = np.zeros(len(idx), dtype=np.float64)
         if n_active > 0:
             used_mat = _ATTRACTOR_MATRIX[idx[active_mask]]
             d_mat = sensory_distance(cand_mat[:, None, :], used_mat[None, :, :])
-            rep_sigma = 0.32 if vowel else 0.30
+            rep_sigma = 0.32 if vowel else 0.26
             repulsion = np.sum(np.exp(-(d_mat ** 2) / (2.0 * rep_sigma * rep_sigma)), axis=1)
 
-        x = (E - prominence) + slot + 0.20 * repulsion
+        x = (E - prominence) + slot + 0.25 * repulsion
         w = np.exp(-(x - x.min()) / T)
 
     w = w / w.sum()
