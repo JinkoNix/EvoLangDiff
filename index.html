@@ -22,8 +22,8 @@
     .right-panel { background: #11151c; border-left: 1px solid #21262d; display: flex; flex-direction: column; overflow: hidden; }
     .control-deck { background: #161b22; border-bottom: 2px solid #58a6ff; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
     .deck-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-    .epoch-badge { font-size: 0.95rem; font-weight: bold; color: #7ee787; background: #0a0d12; padding: 3px 8px; border-radius: 4px; border: 1px solid #30363d; }
-    
+    .epoch-badge { font-size: 0.92rem; font-weight: bold; color: #7ee787; background: #0a0d12; padding: 3px 8px; border-radius: 4px; border: 1px solid #30363d; }
+
     button { background: #238636; color: white; border: none; padding: 5px 12px; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 0.8rem; transition: background 0.15s ease, transform 0.05s ease; }
     button:hover { background: #2ea043; }
     button:active { transform: scale(0.97); }
@@ -86,6 +86,9 @@
     .badge-part { background: #2a2038; color: #d2a8ff; }
     .badge-cls  { background: #281d38; color: #bc8cff; border: 1px solid #4a3266; }
     .badge-super{ background: #4a3210; color: #ffd700; border: 1px solid #856116; }
+    .badge-city { background: #3b2e0c; color: #ffd700; border: 1px solid #856116; }
+    .badge-mount{ background: #262c36; color: #f0f6fc; border: 1px solid #484f58; }
+    .badge-inf  { background: #1c2c38; color: #79c0ff; border: 1px solid #30363d; }
 
     .landmark-row { background: #161b22; border: 1px solid #21262d; border-radius: 4px; padding: 5px 8px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
 
@@ -124,7 +127,6 @@
         <div class="stat-row"><span>Prestige Density:</span><span class="stat-val" style="color:#d2a8ff;" id="livePrestige">-</span></div>
         <div class="stat-row" style="margin-top:4px; flex-direction:column; gap:2px;">
           <span style="font-size:0.7rem; color:#8b949e;">Live Movement & Migration:</span>
-          <!-- Reserved 2-line box prevents layout jumping -->
           <div class="migration-box" id="liveMigration">-</div>
         </div>
       </div>
@@ -151,7 +153,7 @@
       <canvas id="gridCanvas" width="600" height="600"></canvas>
       <div class="map-controls">
         <span>Overlay:</span>
-        <select id="overlaySelect" onchange="renderGrid()">
+        <select id="overlaySelect" onchange="renderGrid(true)">
           <option value="hegemony" selected>Hegemony (Empire Hue + Provincial Substrate)</option>
           <option value="population">Demographic Density & Migration</option>
           <option value="temperature">Thermal Climate (Freezing ↔ Torrid)</option>
@@ -166,7 +168,7 @@
           <option value="none">None (Pure Topography & Waterways)</option>
         </select>
         <span>Opacity:</span>
-        <input type="range" id="opacitySlider" min="0" max="100" value="75" oninput="renderGrid()" style="width: 70px;">
+        <input type="range" id="opacitySlider" min="0" max="100" value="75" oninput="renderGrid(true)" style="width: 70px;">
         <span id="coordDisplay" style="color: #58a6ff;">Hover over map</span>
       </div>
     </div>
@@ -264,11 +266,11 @@
               <input type="text" id="lexiconSearch" placeholder="Filter..." oninput="filterLexicon()" style="width: 110px; padding: 2px 6px;">
             </div>
             <div class="tab-bar">
-              <button class="tab-btn active" onclick="setPosFilter('ALL')">All</button>
-              <button class="tab-btn" onclick="setPosFilter('Noun')">Nouns</button>
-              <button class="tab-btn" onclick="setPosFilter('Verb')">Verbs</button>
-              <button class="tab-btn" onclick="setPosFilter('Adjective')">Adjectives</button>
-              <button class="tab-btn" onclick="setPosFilter('Particle')">Grammar</button>
+              <button class="tab-btn active" onclick="setPosFilter('ALL', this)">All</button>
+              <button class="tab-btn" onclick="setPosFilter('Noun', this)">Nouns</button>
+              <button class="tab-btn" onclick="setPosFilter('Verb', this)">Verbs</button>
+              <button class="tab-btn" onclick="setPosFilter('Adjective', this)">Adjectives</button>
+              <button class="tab-btn" onclick="setPosFilter('Particle', this)">Grammar</button>
             </div>
             <div class="word-list" id="probeLexicon"></div>
           </div>
@@ -287,14 +289,60 @@
     let currentPosFilter = 'ALL';
     let probeRipple = null;
     let cityFoundingPulses = [];
-    let flowAnimOffset = 0.0;
+    let smoothedFps = 0;
+
+    const staticMapCanvas = document.createElement('canvas');
+    staticMapCanvas.width = 600;
+    staticMapCanvas.height = 600;
+    const off64 = document.createElement('canvas');
+    off64.width = 64;
+    off64.height = 64;
+    let staticDirty = true;
+
+    const PLANE = {
+      elevation: 0, population: 1, migration_vx: 2, migration_vy: 3,
+      infrastructure: 4, prestige: 5, humidity: 6, temperature: 7,
+      vegetation: 8, fauna: 9, permeability: 10, complexity: 11,
+      head_directionality: 12, synthesis_index: 13, hegemony: 14,
+      hegemony_strength: 15, attention0: 16
+    };
+
+    function parseBinaryFrame(buf) {
+      const view = new DataView(buf);
+      const jsonLen = view.getUint32(0, true);
+      const headerBytes = new Uint8Array(buf, 4, jsonLen);
+      const meta = JSON.parse(new TextDecoder().decode(headerBytes));
+      const pad = (-jsonLen) & 3;
+      meta.planes = new Float32Array(buf, 4 + jsonLen + pad);
+      return meta;
+    }
+
+    function pVal(name, r, c) {
+      const N = gridData.size;
+      if (gridData.planes) return gridData.planes[(PLANE[name] * N + r) * N + c];
+      return gridData[name][r][c];
+    }
+
+    function pAttn(r, c) {
+      const N = gridData.size;
+      if (gridData.planes) {
+        const idx = r * N + c, NN = N * N, p = gridData.planes;
+        return [
+          p[16 * NN + idx], p[17 * NN + idx], p[18 * NN + idx],
+          p[19 * NN + idx], p[20 * NN + idx], p[21 * NN + idx], p[22 * NN + idx]
+        ];
+      }
+      return gridData.attention[r][c];
+    }
 
     async function fetchState() {
       try {
-        const res = await fetch('/api/state');
-        gridData = await res.json();
+        const res = await fetch('/api/state_bin');
+        gridData = parseBinaryFrame(await res.arrayBuffer());
         handleNewCityEvents(gridData.new_city_events);
+        staticDirty = true;
         updateUI();
+        renderGrid(true);
       } catch (e) {
         safeSet('tickerDisplay', 'Error connecting to backend: ' + e);
       }
@@ -302,14 +350,20 @@
 
     async function stepSim(epochs = 1) {
       try {
-        const res = await fetch('/api/step', {
+        const t0 = performance.now();
+        const res = await fetch('/api/step_bin', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ epochs })
         });
-        gridData = await res.json();
+        gridData = parseBinaryFrame(await res.arrayBuffer());
+        const dt = Math.max(1, performance.now() - t0);
+        const instFps = (epochs * 1000) / dt;
+        smoothedFps = smoothedFps ? (0.85 * smoothedFps + 0.15 * instFps) : instFps;
         handleNewCityEvents(gridData.new_city_events);
+        staticDirty = true;
         updateUI();
+        renderGrid(true);
       } catch (e) {
         safeSet('tickerDisplay', 'Error stepping simulation: ' + e);
       }
@@ -331,6 +385,7 @@
     async function queryProbe(x, y) {
       selectedX = x; selectedY = y;
       triggerRipple(x, y);
+      renderGrid();
 
       const inspector = document.getElementById('inspectorBody');
       if (inspector) inspector.classList.add('is-loading');
@@ -367,7 +422,7 @@
     async function playLoop() {
       while (isPlaying) {
         await stepSim(1);
-        await new Promise(r => setTimeout(r, 40));
+        await new Promise(r => requestAnimationFrame(r));
       }
     }
 
@@ -391,29 +446,30 @@
 
     function updateUI() {
       if (!gridData) return;
-      safeSet('epochDisplay', `Epoch: ${gridData.epoch}`);
+      const fpsStr = smoothedFps > 0 ? ` (${smoothedFps.toFixed(1)} ep/s)` : '';
+      safeSet('epochDisplay', `Epoch: ${gridData.epoch}${fpsStr}`);
       if (gridData.events && gridData.events.length > 0) {
         safeSet('tickerDisplay', `Latest: ${gridData.events[gridData.events.length - 1]}`);
       }
     }
 
-    function getPopColor(val) {
-      if (val < 0.05) return null;
-      if (val < 0.35) {
-        const t = (val - 0.05) / 0.30;
-        return `rgb(${Math.floor(100 + t * 80)}, ${Math.floor(25 + t * 25)}, 20)`;
-      } else if (val < 1.20) {
-        const t = (val - 0.35) / 0.85;
-        return `rgb(${Math.floor(180 + t * 60)}, ${Math.floor(50 + t * 80)}, 20)`;
-      } else if (val < 3.00) {
-        const t = (val - 1.20) / 1.80;
-        return `rgb(${Math.floor(240 + t * 15)}, ${Math.floor(130 + t * 90)}, ${Math.floor(20 + t * 40)})`;
-      } else if (val < 6.50) {
-        const t = (val - 3.00) / 3.50;
-        return `rgb(${Math.floor(255 - t * 120)}, ${Math.floor(220 + t * 35)}, ${Math.floor(60 + t * 195)})`;
+    function getPopRGB(val) {
+      if (val < 0.005) return null;
+      if (val < 0.15) {
+        const t = (val - 0.005) / 0.145;
+        return [Math.floor(70 + t * 45), Math.floor(20 + t * 25), 20];
+      } else if (val < 0.60) {
+        const t = (val - 0.15) / 0.45;
+        return [Math.floor(115 + t * 65), Math.floor(45 + t * 55), 20];
+      } else if (val < 1.80) {
+        const t = (val - 0.60) / 1.20;
+        return [Math.floor(180 + t * 60), Math.floor(100 + t * 90), Math.floor(20 + t * 30)];
+      } else if (val < 4.50) {
+        const t = (val - 1.80) / 2.70;
+        return [Math.floor(240 - t * 100), Math.floor(190 + t * 50), Math.floor(50 + t * 180)];
       } else {
-        const t = Math.min(1.0, (val - 6.50) / 6.0);
-        return `rgb(${Math.floor(135 + t * 120)}, ${Math.floor(255 - t * 40)}, ${Math.floor(255)})`;
+        const t = Math.min(1.0, (val - 4.50) / 5.0);
+        return [Math.floor(140 + t * 115), Math.floor(240 - t * 40), 255];
       }
     }
 
@@ -502,7 +558,7 @@
       if (d.phonology.has_tones && d.phonology.tone_inventory && d.phonology.tone_inventory.length > 0) {
         if (toneDeck) toneDeck.style.display = 'block';
         if (toneList) {
-          toneList.innerHTML = d.phonology.tone_inventory.map(t => 
+          toneList.innerHTML = d.phonology.tone_inventory.map(t =>
             `<span class="tag-tone">${t.symbol} <span style="font-size:0.68rem; color:#e0e6ed; font-weight:normal;">${t.name}</span></span>`
           ).join('');
         }
@@ -564,11 +620,11 @@
       filterLexicon();
     }
 
-    function setPosFilter(pos) {
+    function setPosFilter(pos, btn) {
       currentPosFilter = pos;
       const btns = document.querySelectorAll('.tab-btn');
       btns.forEach(b => b.classList.remove('active'));
-      event.target.classList.add('active');
+      if (btn) btn.classList.add('active');
       filterLexicon();
     }
 
@@ -646,173 +702,185 @@
       return [h * 360, s, l];
     }
 
-    // BICOLOR HEGEMONY SHADER + CANVAS MIGRATION STREAMLINES
-    function renderGrid() {
+    function hslToRgb(h, s, l) {
+      h = (((h % 360) + 360) % 360) / 360;
+      if (s === 0) {
+        const v = Math.round(l * 255);
+        return [v, v, v];
+      }
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      const h2r = (t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+      };
+      return [
+        Math.round(h2r(h + 1 / 3) * 255),
+        Math.round(h2r(h) * 255),
+        Math.round(h2r(h - 1 / 3) * 255),
+      ];
+    }
+
+    function rebuildStaticMap() {
       if (!gridData) return;
-      const canvas = document.getElementById('gridCanvas');
-      const ctx = canvas.getContext('2d');
-      const W = canvas.width, H = canvas.height;
+      const ctx = staticMapCanvas.getContext('2d');
+      const W = staticMapCanvas.width, H = staticMapCanvas.height;
       const N = gridData.size;
       const cellW = W / N, cellH = H / N;
       const overlay = document.getElementById('overlaySelect').value;
       const opacity = parseInt(document.getElementById('opacitySlider').value) / 100.0;
 
-      // Base Topography
+      if (off64.width !== N || off64.height !== N) {
+        off64.width = N;
+        off64.height = N;
+      }
+      const octx = off64.getContext('2d');
+      const img = octx.createImageData(N, N);
+      const px = img.data;
+
+      const polities = gridData.polities || [];
+      const colorMap = gridData.polity_colors || {};
+      const polityById = new Map(polities.map(p => [p.id, p]));
+
       for (let r = 0; r < N; r++) {
         for (let c = 0; c < N; c++) {
-          const elev = gridData.elevation[r][c];
+          const elev = pVal('elevation', r, c);
+          let tR, tG, tB;
           if (elev <= 0.0) {
             const depth = Math.floor(Math.min(1.0, -elev) * 90);
-            ctx.fillStyle = `rgb(10, ${30 + depth}, ${110 + depth})`;
+            tR = 10; tG = 30 + depth; tB = 110 + depth;
           } else {
             const lum = Math.floor(elev * 160 + 35);
-            ctx.fillStyle = `rgb(${lum}, ${lum + 15}, ${lum - 10})`;
+            tR = lum; tG = lum + 15; tB = lum - 10;
           }
-          ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
-        }
-      }
 
-      // Overlays
-      if (overlay !== "none" && opacity > 0.0) {
-        ctx.save();
-        ctx.globalAlpha = opacity;
-
-        if (overlay === "hegemony") {
-          const hegMat = gridData.hegemony;
-          const strMat = gridData.hegemony_strength;
-          const colorMap = gridData.polity_colors || {};
-
-          for (let r = 0; r < N; r++) {
-            for (let c = 0; c < N; c++) {
-              if (gridData.elevation[r][c] <= 0.0) continue;
-              const pid = hegMat[r][c];
-              const pstr = strMat[r][c];
-              // Only render if cell is legitimately claimed (pid >= 0 and pstr >= 0.15)
-              if (pid < 0 || pstr < 0.15) continue;
-
-              const sovereignRGB = colorMap[pid] || [160, 160, 160];
-              const [baseH, baseS, baseL] = rgbToHsl(sovereignRGB[0], sovereignRGB[1], sovereignRGB[2]);
-
-              const localH_dir = gridData.head_directionality[r][c];
-              const localS_idx = gridData.synthesis_index[r][c];
-              const localSigma = gridData.complexity[r][c];
-
-              // Continuous provincial substrate hue modulation
-              const shiftedHue = (baseH + (localH_dir - 0.5) * 55 + (localS_idx - 0.5) * 35 + 360) % 360;
-              const shiftedSat = Math.min(1.0, Math.max(0.2, baseS * 0.75 + (localSigma - 0.5) * 0.35));
-              const shiftedLum = Math.min(0.85, Math.max(0.25, baseL * 0.8 + (pstr - 0.5) * 0.3));
-
-              ctx.fillStyle = `hsla(${shiftedHue}, ${Math.floor(shiftedSat * 100)}%, ${Math.floor(shiftedLum * 100)}%, ${Math.min(0.90, pstr * 0.95)})`;
-              ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
-            }
-          }
-        } else {
-          const mat = gridData[overlay] || gridData['elevation'];
-          if (mat) {
-            for (let r = 0; r < N; r++) {
-              for (let c = 0; c < N; c++) {
-                const val = mat[r][c];
-
-                if (overlay === 'population') {
-                  const col = getPopColor(val);
-                  if (!col) continue;
-                  ctx.fillStyle = col;
-                } else if (overlay === 'temperature') {
-                  const t = val;
-                  let rC, gC, bC;
-                  if (t < 0.25) {
-                    const f = t / 0.25;
-                    rC = Math.floor(20 + f * 40); gC = Math.floor(60 + f * 120); bC = Math.floor(190 + f * 65);
-                  } else if (t < 0.55) {
-                    const f = (t - 0.25) / 0.30;
-                    rC = Math.floor(60 + f * 70); gC = Math.floor(180 + f * 50); bC = Math.floor(255 - f * 180);
-                  } else if (t < 0.80) {
-                    const f = (t - 0.55) / 0.25;
-                    rC = Math.floor(130 + f * 125); gC = Math.floor(230 - f * 80); bC = Math.floor(75 - f * 55);
-                  } else {
-                    const f = Math.min(1.0, (t - 0.80) / 0.20);
-                    rC = Math.floor(255); gC = Math.floor(150 - f * 120); bC = Math.floor(20);
-                  }
-                  ctx.fillStyle = `rgb(${rC}, ${gC}, ${bC})`;
-                } else if (overlay === 'fauna') {
-                  if (val < 0.05) continue;
-                  const f = Math.min(1.0, val / 2.5);
-                  ctx.fillStyle = `rgb(${Math.floor(60 + f * 180)}, ${Math.floor(120 + f * 100)}, ${Math.floor(30 + f * 20)})`;
-                } else if (overlay === 'prestige') {
-                  if (val < 0.05) continue;
-                  ctx.fillStyle = `rgb(${Math.floor(val * 240 + 20)}, ${Math.floor(val * 180 + 20)}, 40)`;
-                } else if (overlay === 'permeability') {
-                  ctx.fillStyle = `rgb(${Math.floor((1.0 - val) * 240)}, ${Math.floor(val * 210)}, ${Math.floor(val * 240)})`;
-                } else if (overlay === 'complexity') {
-                  ctx.fillStyle = `rgb(${Math.floor(val * 240)}, 40, ${Math.floor((1.0 - val) * 240)})`;
-                } else if (overlay === 'head_directionality') {
-                  ctx.fillStyle = `rgb(${Math.floor(val * 240 + 30)}, ${Math.floor(val * 180)}, ${Math.floor((1.0 - val) * 240)})`;
-                } else if (overlay === 'synthesis_index') {
-                  ctx.fillStyle = `rgb(${Math.floor((1.0 - val) * 200 + 30)}, ${Math.floor(val * 220)}, 180)`;
-                } else if (overlay === 'humidity') {
-                  ctx.fillStyle = `rgb(15, ${Math.floor(val * 160 + 30)}, ${Math.floor(val * 220 + 30)})`;
-                } else if (overlay === 'vegetation') {
-                  ctx.fillStyle = `rgb(20, ${Math.floor(val * 210 + 35)}, 45)`;
+          if (overlay !== "none" && opacity > 0.0) {
+            let oR = 0, oG = 0, oB = 0, oA = 0.0;
+            if (overlay === "hegemony") {
+              if (elev > 0.0) {
+                const pid = Math.round(pVal('hegemony', r, c));
+                const pop = pVal('population', r, c);
+                if (pid >= 0 && pop >= 0.006) {
+                  const pol = polityById.get(pid);
+                  const inst = pol ? (pol.institutionalization ?? (pol.is_standardized ? 0.90 : 0.30)) : 0.15;
+                  const sRGB = colorMap[pid] || [160, 160, 160];
+                  const [baseH, baseS, baseL] = rgbToHsl(sRGB[0], sRGB[1], sRGB[2]);
+                  const shiftedHue = (baseH + (pVal('head_directionality', r, c) - 0.5) * 55 + (pVal('synthesis_index', r, c) - 0.5) * 35 + 360) % 360;
+                  const shiftedSat = Math.min(1.0, Math.max(0.18, baseS * (0.45 + 0.55 * inst)));
+                  const shiftedLum = Math.min(0.85, Math.max(0.25, baseL * (0.50 + 0.50 * inst)));
+                  [oR, oG, oB] = hslToRgb(shiftedHue, shiftedSat, shiftedLum);
+                  const popFactor = Math.min(1.0, pop / 0.6);
+                  oA = opacity * Math.min(0.92, Math.max(0.26, (0.22 + 0.70 * inst) * (0.40 + 0.60 * popFactor)));
                 }
-                ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
+              }
+            } else {
+              const val = pVal(overlay in PLANE ? overlay : 'elevation', r, c);
+              oA = opacity;
+              if (overlay === 'population') {
+                const rgb = getPopRGB(val);
+                if (rgb) { [oR, oG, oB] = rgb; } else { oA = 0.0; }
+              } else if (overlay === 'temperature') {
+                if (val < 0.25) {
+                  const f = val / 0.25;
+                  oR = 20 + f * 40; oG = 60 + f * 120; oB = 190 + f * 65;
+                } else if (val < 0.55) {
+                  const f = (val - 0.25) / 0.30;
+                  oR = 60 + f * 70; oG = 180 + f * 50; oB = 255 - f * 180;
+                } else if (val < 0.80) {
+                  const f = (val - 0.55) / 0.25;
+                  oR = 130 + f * 125; oG = 230 - f * 80; oB = 75 - f * 55;
+                } else {
+                  const f = Math.min(1.0, (val - 0.80) / 0.20);
+                  oR = 255; oG = 150 - f * 120; oB = 20;
+                }
+              } else if (overlay === 'fauna') {
+                if (val >= 0.05) {
+                  const f = Math.min(1.0, val / 2.5);
+                  oR = 60 + f * 180; oG = 120 + f * 100; oB = 30 + f * 20;
+                } else { oA = 0.0; }
+              } else if (overlay === 'prestige') {
+                if (val >= 0.05) { oR = val * 240 + 20; oG = val * 180 + 20; oB = 40; } else { oA = 0.0; }
+              } else if (overlay === 'permeability') {
+                oR = (1.0 - val) * 240; oG = val * 210; oB = val * 240;
+              } else if (overlay === 'complexity') {
+                oR = val * 240; oG = 40; oB = (1.0 - val) * 240;
+              } else if (overlay === 'head_directionality') {
+                oR = val * 240 + 30; oG = val * 180; oB = (1.0 - val) * 240;
+              } else if (overlay === 'synthesis_index') {
+                oR = (1.0 - val) * 200 + 30; oG = val * 220; oB = 180;
+              } else if (overlay === 'humidity') {
+                oR = 15; oG = val * 160 + 30; oB = val * 220 + 30;
+              } else if (overlay === 'vegetation') {
+                oR = 20; oG = val * 210 + 35; oB = 45;
               }
             }
+            if (oA > 0.0) {
+              tR = tR * (1.0 - oA) + oR * oA;
+              tG = tG * (1.0 - oA) + oG * oA;
+              tB = tB * (1.0 - oA) + oB * oA;
+            }
           }
+
+          const idx = (r * N + c) * 4;
+          px[idx] = tR; px[idx + 1] = tG; px[idx + 2] = tB; px[idx + 3] = 255;
         }
-        ctx.restore();
       }
 
-      // ANIMATED POPULATION MIGRATION STREAMLINES
-      if (gridData.migration_vx && gridData.migration_vy) {
-        ctx.save();
-        ctx.strokeStyle = "rgba(125, 220, 255, 0.45)";
-        ctx.lineWidth = 1.0;
-        flowAnimOffset = (flowAnimOffset + 0.04) % 1.0;
+      octx.putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(off64, 0, 0, W, H);
 
-        for (let r = 1; r < N - 1; r += 2) {
-          for (let c = 1; c < N - 1; c += 2) {
-            const p = gridData.population[r][c];
-            if (p < 0.12 || gridData.elevation[r][c] <= 0.0) continue;
+      // Migration Streamlines
+      ctx.save();
+      ctx.strokeStyle = "rgba(125, 220, 255, 0.45)";
+      ctx.lineWidth = 1.0;
+      for (let r = 1; r < N - 1; r += 2) {
+        for (let c = 1; c < N - 1; c += 2) {
+          const p = pVal('population', r, c);
+          if (p < 0.12 || pVal('elevation', r, c) <= 0.0) continue;
 
-            const vx = gridData.migration_vx[r][c];
-            const vy = gridData.migration_vy[r][c];
-            const spd = Math.hypot(vx, vy);
-            if (spd < 0.08) continue;
+          const vx = pVal('migration_vx', r, c);
+          const vy = pVal('migration_vy', r, c);
+          const spd = Math.hypot(vx, vy);
+          if (spd < 0.08) continue;
 
-            const cx = (c + 0.5) * cellW;
-            const cy = (r + 0.5) * cellH;
-            const nx = vx / spd;
-            const ny = vy / spd;
+          const cx = (c + 0.5) * cellW;
+          const cy = (r + 0.5) * cellH;
+          const nx = vx / spd;
+          const ny = vy / spd;
 
-            const startX = cx - nx * cellW * 0.4;
-            const startY = cy - ny * cellH * 0.4;
-            const endX = cx + nx * cellW * 0.5;
-            const endY = cy + ny * cellH * 0.5;
+          const startX = cx - nx * cellW * 0.4;
+          const startY = cy - ny * cellH * 0.4;
+          const endX = cx + nx * cellW * 0.5;
+          const endY = cy + ny * cellH * 0.5;
 
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            ctx.lineTo(endX, endY);
-            ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
+          ctx.stroke();
 
-            const headX = endX - (nx * 2.5 - ny * 1.5);
-            const headY = endY - (ny * 2.5 + nx * 1.5);
-            ctx.beginPath();
-            ctx.moveTo(endX, endY);
-            ctx.lineTo(headX, headY);
-            ctx.stroke();
-          }
+          const headX = endX - (nx * 2.5 - ny * 1.5);
+          const headY = endY - (ny * 2.5 + nx * 1.5);
+          ctx.beginPath();
+          ctx.moveTo(endX, endY);
+          ctx.lineTo(headX, headY);
+          ctx.stroke();
         }
-        ctx.restore();
       }
+      ctx.restore();
 
       // Lakes
       if (gridData.lakes && gridData.lakes.length > 0) {
         ctx.save();
+        ctx.fillStyle = "rgba(25, 120, 200, 0.75)";
         for (const lk of gridData.lakes) {
           const lx = (lk.x + 0.5) * cellW;
           const ly = (lk.y + 0.5) * cellH;
           const rad = Math.max(2.5, lk.radius * cellW * 0.45);
-          ctx.fillStyle = "rgba(25, 120, 200, 0.75)";
           ctx.beginPath();
           ctx.arc(lx, ly, rad, 0, Math.PI * 2);
           ctx.fill();
@@ -825,22 +893,19 @@
         ctx.save();
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
+        ctx.strokeStyle = "rgba(35, 140, 220, 0.80)";
 
         for (const path of gridData.rivers) {
           if (path.length < 2) continue;
-
           for (let i = 0; i < path.length - 1; i++) {
             const p0 = path[i];
             const p1 = path[i + 1];
             const q = p0[2] || 1.0;
-            const dynamicWidth = Math.min(5.0, Math.max(0.8, Math.sqrt(q) * 0.95));
 
             ctx.beginPath();
             ctx.moveTo((p0[0] + 0.5) * cellW, (p0[1] + 0.5) * cellH);
             ctx.lineTo((p1[0] + 0.5) * cellW, (p1[1] + 0.5) * cellH);
-
-            ctx.strokeStyle = "rgba(35, 140, 220, 0.80)";
-            ctx.lineWidth = dynamicWidth;
+            ctx.lineWidth = Math.min(5.0, Math.max(0.8, Math.sqrt(q) * 0.95));
             ctx.stroke();
           }
         }
@@ -874,6 +939,22 @@
         }
         ctx.restore();
       }
+
+      staticDirty = false;
+    }
+
+    function renderGrid(forceRebuild = false) {
+      if (!gridData) return;
+      if (forceRebuild || staticDirty) rebuildStaticMap();
+
+      const canvas = document.getElementById('gridCanvas');
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      const N = gridData.size;
+      const cellW = W / N, cellH = H / N;
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(staticMapCanvas, 0, 0);
 
       // Shockwaves
       for (let i = cityFoundingPulses.length - 1; i >= 0; i--) {
@@ -915,7 +996,9 @@
     }
 
     function animLoop() {
-      renderGrid();
+      if (staticDirty || probeRipple || cityFoundingPulses.length > 0) {
+        renderGrid();
+      }
       requestAnimationFrame(animLoop);
     }
 
@@ -931,14 +1014,16 @@
     canvas.addEventListener('mousemove', e => {
       if (!gridData) return;
       const { x, y } = getGridCoords(e);
-      const elev = gridData.elevation[y][x];
-      const pop = gridData.population[y][x];
-      const temp = gridData.temperature ? gridData.temperature[y][x] : 0.5;
-      const fauna = gridData.fauna ? gridData.fauna[y][x] : 0.0;
-      const infra = gridData.infrastructure ? gridData.infrastructure[y][x] : 0.0;
-      const prest = gridData.prestige ? gridData.prestige[y][x] : 0.0;
-      const perm = gridData.permeability ? gridData.permeability[y][x] : 1.0;
-      const hegId = gridData.hegemony ? gridData.hegemony[y][x] : -1;
+      const elev = pVal('elevation', y, x);
+      const pop = pVal('population', y, x);
+      const temp = pVal('temperature', y, x);
+      const hum = pVal('humidity', y, x);
+      const fauna = pVal('fauna', y, x);
+      const veg = pVal('vegetation', y, x);
+      const infra = pVal('infrastructure', y, x);
+      const prest = pVal('prestige', y, x);
+      const perm = pVal('permeability', y, x);
+      const hegId = Math.round(pVal('hegemony', y, x));
 
       let tempTag = "Mild";
       if (temp < 0.20) tempTag = "Freezing Frost";
@@ -952,39 +1037,42 @@
       else if (infra >= 4.0 && pop >= 1.8) stage = "Walled Town / Port";
       else if (infra >= 1.5 && pop >= 0.7) stage = "Agrarian Village";
       else if (pop >= 0.15) stage = "Nomadic Camp / Station";
+      else if (pop >= 0.005) stage = "Foraging Band";
       else if (infra >= 1.5) stage = "Abandoned Ruins";
 
-      // Precise Sovereignty Check: Strictly Unclaimed if hegId < 0
       const pol = (hegId >= 0 && gridData.polities) ? gridData.polities.find(p => p.id === hegId) : null;
       const polName = pol ? `${pol.name} (${pol.government_type})` : (hegId >= 0 ? `Territory #${hegId}` : "Unclaimed Territory");
-      const contractDesc = (hegId < 0) ? "None (Ungoverned)" : (pol && pol.is_standardized ? "Fealty Agreement (Tributary)" : "Independent Sovereign");
+      const instVal = pol
+        ? (pol.institutionalization !== undefined ? pol.institutionalization : (pol.is_standardized ? 1.0 : 0.25))
+        : 0;
+      const instPct = Math.round(instVal * 100);
 
       safeSet('liveCoords', `(${x}, ${y})`);
-      safeSet('liveBiome', elev <= 0.0 ? `Sea (Depth ${Math.round(Math.abs(elev)*3800)}m)` : `Land (Alt ${elev.toFixed(2)})`);
+      safeSet('liveBiome', elev <= 0.0 ? `Sea (Depth ${Math.round(Math.abs(elev) * 3800)}m)` : `Land (Alt ${elev.toFixed(2)})`);
       safeSet('liveTemp', `${temp.toFixed(2)} [${tempTag}]`);
-      safeSet('liveHum', gridData.humidity ? gridData.humidity[y][x].toFixed(2) : '-');
+      safeSet('liveHum', hum.toFixed(2));
       safeSet('liveFauna', fauna.toFixed(2));
-      safeSet('liveSoil', gridData.vegetation ? (gridData.vegetation[y][x] > 0.4 ? "Fertile" : "Depleted / Arid") : '-');
+      safeSet('liveSoil', veg > 0.4 ? "Fertile" : "Depleted / Arid");
       safeSet('liveStage', stage);
       safeSet('liveInfra', infra.toFixed(1));
-      safeSet('livePop', `~${Math.round(pop * 250)}k citizens`);
-      safeSet('liveCalories', pop < 0.05 ? "N/A" : (pop > 3.0 ? "Demographic Strain" : "Adequate"));
+      safeSet('livePop', (pop < 0.005 || elev <= 0.0) ? "0 citizens" : `~${Math.max(25, Math.round(pop * 250000)).toLocaleString()} citizens`);
+      safeSet('liveCalories', (pop < 0.005 || elev <= 0.0) ? "N/A" : (pop > 3.0 ? "Demographic Strain" : "Adequate"));
       safeSet('livePrestige', prest.toFixed(1));
       safeSet('livePolity', polName);
-      safeSet('liveContract', contractDesc);
+      safeSet('liveContract', (!pol || hegId < 0) ? "None (Ungoverned)" : `${pol.government_type} (Maturity: ${instPct}%)`);
       safeSet('liveDanger', perm < 0.15 ? "Contested Frontier [Active Conflict]" : "Secure / Open");
       safeSet('livePerm', perm.toFixed(2));
 
-      // Fixed 2-Line Migration Display (Zero Layout Jitter)
+      // Fixed 2-Line Migration Display
       const migBox = document.getElementById('liveMigration');
       if (migBox) {
-        if (pop < 0.05 || elev <= 0.0) {
+        if (pop < 0.005 || elev <= 0.0) {
           migBox.innerText = 'None (Uninhabited)';
         } else if (infra >= 4.0) {
           migBox.innerText = 'Stationary Sedentary Population';
-        } else if (gridData.migration_vx && gridData.migration_vy) {
-          const mvx = gridData.migration_vx[y][x];
-          const mvy = gridData.migration_vy[y][x];
+        } else {
+          const mvx = pVal('migration_vx', y, x);
+          const mvy = pVal('migration_vy', y, x);
           const spd = Math.hypot(mvx, mvy);
           if (spd < 0.06) {
             migBox.innerText = 'Stationary Settled Population';
@@ -1000,28 +1088,28 @@
             else if (-112.5 <= angle && angle < -67.5) heading = "South";
             else heading = "South-East";
 
-            const isConflict = perm < 0.15;
-            const motive = isConflict ? "Fleeing Conflict Front" : "Pastoral Grazing & Foraging";
+            const motive = (perm < 0.15) ? "Fleeing Conflict Front" : "Pastoral Grazing & Foraging";
             migBox.innerText = `Migrating ${heading} (${(spd * 4.2).toFixed(1)} km/yr)\n${motive}`;
           }
         }
       }
 
-      // 7D MINDSET GENOME ON LEFT PANEL
+      // 7D MINDSET GENOME LIVE UPDATE ON LEFT PANEL
       const aWrap = document.getElementById('liveAttentionBars');
-      if (aWrap && gridData.attention) {
-        const cellA = gridData.attention[y][x];
+      if (aWrap) {
+        const cellA = pAttn(y, x);
         const gNames = ["Matter (C)", "Life (A)", "Cohesion (V)", "Force (P)", "Velocity (D)", "Coordination (S)", "Horizon (E)"];
-        if (pop >= 0.05 && elev > 0.0) {
+
+        if (pop >= 0.005 && elev > 0.0) {
           aWrap.innerHTML = cellA.map((val, i) => `
             <div class="bar-row">
               <span class="bar-label">${gNames[i]}:</span>
-              <div class="bar-wrap"><div class="bar-fill" style="width: ${(val / 2.5) * 100}%;"></div></div>
+              <div class="bar-wrap"><div class="bar-fill" style="width: ${Math.min(100, (val / 2.5) * 100)}%;"></div></div>
               <span style="width: 28px; font-weight: bold; text-align: right; font-size:0.7rem;">${val.toFixed(2)}</span>
             </div>
           `).join('');
         } else {
-          aWrap.innerHTML = '<div style="color:#8b949e; font-size:0.7rem;">Uninhabited (Zero human attention).</div>';
+          aWrap.innerHTML = '<div style="color:#8b949e; font-size:0.7rem;">Pristine Wilderness (Zero human presence).</div>';
         }
       }
 
@@ -1035,10 +1123,10 @@
 
       if (elev <= 0.0) {
         safeSet('coordDisplay', `Cell: (${x}, ${y}) | SEA | Temp: ${temp.toFixed(2)} (${tempTag})`);
-      } else if (pop < 0.05) {
+      } else if (pop < 0.005) {
         safeSet('coordDisplay', `Cell: (${x}, ${y}) | WILDERNESS | Temp: ${temp.toFixed(2)} (${tempTag}) | Fauna: ${fauna.toFixed(2)}`);
       } else {
-        safeSet('coordDisplay', `Cell: (${x}, ${y}) | ${stage.toUpperCase()} | Pop: ~${Math.round(pop * 250)}k | Temp: ${temp.toFixed(2)}`);
+        safeSet('coordDisplay', `Cell: (${x}, ${y}) | ${stage.toUpperCase()} | Pop: ~${Math.max(25, Math.round(pop * 250000)).toLocaleString()} | Temp: ${temp.toFixed(2)}`);
       }
     });
 

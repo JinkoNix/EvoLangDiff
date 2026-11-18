@@ -224,13 +224,13 @@ class SemanticTranslator:
     @classmethod
     def get_pos(cls, vector: SemanticVector) -> str:
         c, a, v, p, d, s, e = vector.coords
-
-        score_noun = 2.20 * c + 1.60 * a - 0.80 * d
-        score_verb = 2.40 * d + 1.10 * p - 0.70 * c
+    
+        score_noun = 2.60 * c + 0.50 * a - 0.60 * d
+        score_verb = 1.80 * d + 0.80 * p + 1.00 * a - 1.20 * c
         qual_salience = max(abs(v - 0.50), abs(p - 0.50), abs(e - 0.50))
         score_adj = 2.10 * qual_salience + 0.60 * (1.0 - d) + 0.40 * (1.0 - a) - 0.80 * c
         score_particle = 3.20 * vector.grammaticality_index
-
+    
         scores = [
             (score_verb, "Verb"),
             (score_noun, "Noun"),

@@ -225,7 +225,7 @@ class SemanticSpace:
     SEE   = SemanticVector(0.4, 0.8, 0.6, 0.4, 0.5, 0.3, 0.4)
     HEAR  = SemanticVector(0.4, 0.8, 0.6, 0.4, 0.4, 0.4, 0.4)
     SPEAK = SemanticVector(0.4, 0.9, 0.6, 0.4, 0.7, 1.0, 0.3)
-    EAT   = SemanticVector(0.8, 0.8, 0.8, 0.5, 0.6, 0.3, 0.2)
+    EAT   = SemanticVector(0.5, 0.8, 0.8, 0.5, 0.7, 0.3, 0.2)
     DIE   = SemanticVector(0.5, 0.8, 0.1, 0.8, 0.4, 0.3, 0.6)
 
     GOOD  = SemanticVector(0.2, 0.3, 1.0, 0.6, 0.3, 0.7, 0.5)

@@ -1,135 +1,112 @@
 """
-lexicon.py — Productive Derivational Morphology, Biomechanical Root Synthesis,
+lexicon.py — Productive Derivational Morphology, Energy-Based Root Coinage,
 and Demographically Driven Semantic Expansion.
-Velaric double-closures (clicks) restricted to small, low-noise foraging communities.
 Part of the EvoLangDiff Engine.
 """
 
 from __future__ import annotations
 
-import math
-import random
+from types import SimpleNamespace
 from typing import Sequence
 import numpy as np
 
-from phonetics import Phoneme, repair_phonemes, apply_prosody
+from phonetics import (
+    Phoneme,
+    repair_phonemes,
+    render_word_trajectory,
+    inventory_counts,
+    sample_segment,
+    sound_change_step,
+    _ATTRACTOR_MATRIX,
+    _ATTRACTOR_SYMBOLS,
+)
 from word import Word, Morpheme, ClineStage, LexicalCategory
 from semantics import SemanticVector, SemanticSpace, DerivationRecord, DerivationType
 
 
+def _np_rng(rng) -> np.random.Generator:
+    """Accepts a numpy Generator, a stdlib Random, or None."""
+    if rng is None:
+        return np.random.default_rng()
+    if hasattr(rng, "integers"):
+        return rng
+    if hasattr(rng, "getrandbits"):
+        return np.random.default_rng(rng.getrandbits(32))
+    return np.random.default_rng()
+
+
 class LexiconGenerator:
-    @classmethod
-    def synthesize_constriction_gesture(cls, env=None) -> Phoneme:
-        """
-        Samples continuous 9D tract space.
-        Clicks are strictly limited: they require an isolated foraging band
-        in open, silent savannah with low population, and incur a heavy motor penalty.
-        """
-        alt = getattr(env, "altitude", 0.0) if env else 0.0
-        hum = getattr(env, "humidity", 0.5) if env else 0.5
-        veg = getattr(env, "vegetation", 0.3) if env else 0.3
-        pop = getattr(env, "population", 0.5) if env else 0.5
-        rho = math.exp(-0.85 * max(0.0, alt))
-
-        g = np.random.uniform(0.0, 1.0, size=9).astype(np.float32)
-        g[1] = 0.0  # Lip protrusion default
-        g[6] = 0.0  # Velum closed default
-        g[8] = 0.50 # Resting neutral larynx
-
-        # Clicks are an extraordinary, rare innovation:
-        # Require low population (foragers), flat open terrain, low vegetation, and low noise
-        open_plain_suitability = max(0.0, 1.0 - veg * 3.0) * max(0.0, 1.0 - alt * 2.5) * max(0.0, 1.0 - pop * 1.5)
-        # Global base rate is very small (< 2.5% even in optimal plains, 0% elsewhere)
-        is_click_roll = (random.random() < open_plain_suitability * 0.025)
-
-        if is_click_roll:
-            if random.random() < 0.50:
-                g[0] = 0.00
-                g[2] = 1.00
-            else:
-                g[0] = 1.00
-                g[2] = 0.00
-                g[3] = float(np.random.choice([0.05, 0.25, 0.50]))
-
-            # Posterior velar closure (g4=0, g5>=0.75)
-            g[4] = 0.00
-            g[5] = 0.75
-            g[7] = 0.40
-            return Phoneme(g, duration=0.85)
-
-        # Standard Single-Constriction Plosive / Fricative
-        organ_choice = int(np.random.choice([0, 2, 4]))
-        g[organ_choice] = np.random.uniform(0.0, 0.08)
-
-        if organ_choice == 2:
-            g[3] = float(np.random.choice([0.25, 0.85]))
-        elif organ_choice == 4:
-            g[5] = float(np.random.choice([0.15, 0.75]))
-
-        g[7] = float(np.random.choice([0.40, 0.60, 0.02]))
-
-        # High-altitude hypoxia promotes larynx elevation (ejectives) to conserve pulmonary air
-        if rho < 0.65 and g[organ_choice] < 0.08:
-            if random.random() < (1.0 - rho) * 0.80:
-                g[7] = 0.02
-                g[8] = 0.85
-
-        # Arid heat promotes pharyngeal constriction and tongue backing
-        if hum < 0.32:
-            g[5] = max(g[5], 0.80)
-            if random.random() < (0.38 - hum) * 0.75:
-                g[8] = 0.95
-
-        return Phoneme(g, duration=1.0)
+    TOKEN_JITTER = 0.015
 
     @classmethod
-    def synthesize_resonant_gesture(cls, env=None) -> Phoneme:
-        hum = getattr(env, "humidity", 0.5) if env else 0.5
-        drying = max(0.0, 0.45 - hum)
-
-        # Disperse vowels across the full F1/F2 space: high-front, low-open, high-back
-        corner = random.choices(["front_high", "open_low", "back_high", "mid"], weights=[0.28, 0.30, 0.25, 0.17])[0]
-
-        if corner == "front_high":
-            target_height = float(np.clip(np.random.normal(0.28, 0.08), 0.20, 0.40))
-            target_backness = float(np.clip(np.random.normal(0.12, 0.06), 0.05, 0.25))
-            lip_p = 0.0
-        elif corner == "back_high":
-            target_height = float(np.clip(np.random.normal(0.30, 0.08), 0.20, 0.45))
-            target_backness = float(np.clip(np.random.normal(0.82, 0.08), 0.70, 0.95))
-            lip_p = 0.85
-        elif corner == "open_low":
-            target_height = float(np.clip(np.random.normal(0.90 - 0.10 * drying, 0.08), 0.75, 0.98))
-            target_backness = float(np.clip(np.random.normal(0.45, 0.20), 0.20, 0.80))
-            lip_p = 0.0
+    def _realize(cls, symbol_index: int, rng: np.random.Generator, vowel: bool) -> Phoneme:
+        g = _ATTRACTOR_MATRIX[symbol_index].astype(np.float32).copy()
+        g = np.clip(g + rng.normal(0.0, cls.TOKEN_JITTER, size=9).astype(np.float32), 0.0, 1.0)
+        sym = _ATTRACTOR_SYMBOLS[symbol_index]
+        if vowel:
+            tau = 1.35 if rng.random() < 0.20 else 1.00
+        elif sym in {"ʘ", "ǀ", "ǃ", "ǂ", "ǁ"}:
+            tau = 0.85
         else:
-            target_height = float(np.clip(np.random.normal(0.55, 0.10), 0.45, 0.65))
-            target_backness = float(np.clip(np.random.normal(0.50, 0.15), 0.30, 0.70))
-            lip_p = 0.40 if target_backness > 0.50 else 0.0
-
-        lip_d = (1.0 - lip_p) * 1.00 + lip_p * 0.35
-        g = np.array([lip_d, lip_p, 1.00, 0.00, target_height, target_backness, 0.00, 0.40, 0.50], dtype=np.float32)
-        tau = 1.35 if random.random() < 0.20 else 1.00
+            tau = 1.00
         return Phoneme(g, duration=tau)
 
     @classmethod
-    def generate_gestural_root(cls, profile=None, env=None, existing_words: Sequence[Word] | None = None) -> list[Phoneme]:
+    def synthesize_constriction_gesture(cls, env=None, counts: np.ndarray | None = None, rng=None) -> Phoneme:
+        rng = _np_rng(rng)
+        pop = float(getattr(env, "population", 0.5)) if env else 0.5
+        return cls._realize(sample_segment(False, counts, env, pop, rng), rng, vowel=False)
+
+    @classmethod
+    def synthesize_resonant_gesture(cls, env=None, counts: np.ndarray | None = None, rng=None) -> Phoneme:
+        rng = _np_rng(rng)
+        pop = float(getattr(env, "population", 0.5)) if env else 0.5
+        return cls._realize(sample_segment(True, counts, env, pop, rng), rng, vowel=True)
+
+    @classmethod
+    def generate_gestural_root(
+        cls,
+        profile=None,
+        env=None,
+        existing_words: Sequence[Word] | None = None,
+        rng=None,
+        existing_counts: np.ndarray | None = None,
+        existing_forms: set[str] | None = None,
+    ) -> list[Phoneme]:
+        rng = _np_rng(rng)
         s_comp = getattr(profile, "syllable_complexity", 0.50) if profile else 0.50
 
-        for _ in range(40):
-            gestures = [cls.synthesize_constriction_gesture(env), cls.synthesize_resonant_gesture(env)]
-            if random.random() < (s_comp * 0.70):
-                gestures.append(cls.synthesize_constriction_gesture(env))
+        counts = existing_counts if (existing_counts is not None and float(existing_counts.sum()) > 0.0) else None
+        if counts is None and existing_words:
+            c = inventory_counts(existing_words)
+            counts = c if float(c.sum()) > 0.0 else None
 
-            repaired = repair_phonemes(gestures, profile=profile)
+        forms_set = existing_forms if existing_forms is not None else (
+            {w.plain_form for w in existing_words} if existing_words else set()
+        )
+
+        fallback = None
+        for _ in range(40):
+            gestures = [
+                cls.synthesize_constriction_gesture(env, counts, rng),
+                cls.synthesize_resonant_gesture(env, counts, rng),
+            ]
+            if rng.random() < (s_comp * 0.70):
+                gestures.append(cls.synthesize_constriction_gesture(env, counts, rng))
+
+            repaired = repair_phonemes(list(gestures), profile=profile)
             if not repaired or not any(p.is_vowel for p in repaired):
                 continue
-            if existing_words:
-                cand_ipa = "".join(p.ipa for p in repaired)
-                if any(w.plain_form == cand_ipa for w in existing_words):
+            fallback = repaired
+            if forms_set:
+                plain = render_word_trajectory(np.stack([p.vector for p in repaired], axis=0))[1]
+                if plain in forms_set:
                     continue
             return repaired
-        return repaired
+
+        if fallback is not None:
+            return fallback
+        return [cls.synthesize_constriction_gesture(env, counts, rng), cls.synthesize_resonant_gesture(env, counts, rng)]
 
     @classmethod
     def derive_productive_concept(
@@ -178,14 +155,14 @@ class LexiconGenerator:
         affix_p = mod_word.phonemes[:1] if len(mod_word.phonemes) > 1 else mod_word.phonemes
         h = getattr(profile, "head_directionality", 0.50)
         raw_p = (base_word.phonemes + affix_p) if h >= 0.50 else (affix_p + base_word.phonemes)
-        repaired_p = repair_phonemes(raw_p, profile=profile)
+        repaired_p = repair_phonemes(list(raw_p), profile=profile)
         if not repaired_p or not any(p.is_vowel for p in repaired_p):
             return None
 
         m_base = Morpheme(base_word.phonemes, root_family_id=base_word.derivation.root_family_id)
         m_aff = Morpheme(affix_p, root_family_id=mod_word.derivation.root_family_id, is_grammatical=True, stage=ClineStage.BOUND_AFFIX)
 
-        derived_word = Word(
+        return Word(
             vector=new_vec,
             phonemes=repaired_p,
             morphemes=[m_base, m_aff] if h >= 0.50 else [m_aff, m_base],
@@ -197,10 +174,10 @@ class LexiconGenerator:
             category=LexicalCategory.CONTENT_OPEN,
             usage_frequency=1.2,
         )
-        return derived_word
 
     @classmethod
-    def populate_proto_lexicon(cls, population: float = 0.50, **kwargs) -> list[Word]:
+    def populate_proto_lexicon(cls, population: float = 0.50, rng=None, **kwargs) -> list[Word]:
+        rng = _np_rng(rng if rng is not None else kwargs.get("seed"))
         words: list[Word] = []
         seed_names = [
             "water", "fire", "sun", "moon", "earth", "stone", "tree", "mother", "father",
@@ -208,9 +185,10 @@ class LexiconGenerator:
             "blood", "make", "move", "see", "hear", "speak", "eat", "die", "good", "bad",
             "big", "small", "this", "that", "in", "above", "not", "one", "many"
         ]
+        env = SimpleNamespace(population=population)
 
         for i, seed_vec in enumerate(SemanticSpace.BIOLOGICAL_COGNITIVE_SEEDS):
-            phonemes = cls.generate_gestural_root(profile=None, env=None, existing_words=words)
+            phonemes = cls.generate_gestural_root(profile=None, env=env, existing_words=words, rng=rng)
             valence_intensity = abs(seed_vec.valence - 0.50) + seed_vec.potency * 0.40
             scaled_phonemes = [
                 Phoneme(p.g, duration=round(p.duration * (0.85 + 0.30 * valence_intensity), 2))
@@ -228,5 +206,11 @@ class LexiconGenerator:
             )
             w.senses = (seed_names[i] if i < len(seed_names) else f"concept_{i}",)
             words.append(w)
+
+        # Light self-organization from zero initial inventory without over-merging
+        for _ in range(15):
+            sound_change_step(words, rng=rng, T=0.05, env=env, p_merge=0.20, p_cond=0.20)
+        for w in words:
+            w._invalidate_cache()
 
         return words
