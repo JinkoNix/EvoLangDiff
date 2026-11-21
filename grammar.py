@@ -1,7 +1,6 @@
 """
-grammar.py — Autonomous Morphosyntax, Sociolinguistic Population Law,
-Continuous Alignment Rotation, and Diverse Numeral Radices (5, 10, 12, 20, 60).
-Part of the EvoLangDiff Engine.
+grammar.py — Morphosyntax, Sociolinguistic Population Law,
+Alignment Rotation, and Numeral Radices (5, 10, 12, 20, 60).
 """
 
 from __future__ import annotations
@@ -10,16 +9,10 @@ import math
 from dataclasses import dataclass, field
 from typing import Sequence
 
-from phonetics import (
-    Phoneme,
-    transition_cost,
-    repair_phonemes,
-    apply_prosody,
-    render_and_extract_tones,
-)
-from word import Word, Morpheme, LexicalCategory
 from language import Language
-from semantics import SemanticVector, SemanticSpace, DerivationRecord, DerivationType, ClineStage
+from phonetics import render_and_extract_tones, transition_cost
+from semantics import ClineStage, DerivationRecord, DerivationType, SemanticSpace, SemanticVector
+from word import LexicalCategory, Morpheme, Phoneme, Word, repair_phonemes
 
 
 @dataclass
@@ -78,33 +71,15 @@ def _render_surface(word: Word, lang: Language) -> str:
     return form
 
 
-# -----------------------------------------------------------------------------
-# 1. NATURAL NUMERAL BASES & COMPOSITIONAL COUNTING
-# -----------------------------------------------------------------------------
-
 class ContinuousNumeralSystem:
     @classmethod
     def determine_base(cls, attn: Sequence[float], pop: float, infra: float = 0.0) -> tuple[int, str, dict[str, int]]:
-        """
-        Derives cultural radix continuously from ecological attention, population, and infrastructure:
-        - Quinary (5): Foraging, isolated bands (1 hand)
-        - Decimal (10): Moderate settlements (2 hands)
-        - Duodecimal (12): Trade confluences counting 12 finger phalanxes with thumb
-        - Vigesimal (20): Full body counting (hands + feet, "one person")
-        - Sexagesimal (60): Highly developed institutional/astronomical empires (5 x 12)
-        """
-        p_quinary = attn[0] * 0.70 + max(0.0, 0.8 - pop * 0.6)
-        p_vigesimal = attn[1] * 0.50 + attn[3] * 0.50 + max(0.0, 0.5 - infra * 0.2)
-        p_decimal = attn[5] * 0.50 + attn[6] * 0.40 + math.tanh(pop * 0.25)
-        p_duodecimal = attn[6] * 0.60 + math.tanh(infra * 0.20) * 0.50
-        p_sexagesimal = math.tanh(infra * 0.35) * 0.80 + math.tanh(pop * 0.20) * 0.40
-
         scores = [
-            (p_quinary, 5, "Quinary (Base-5)", {"hundred": 25, "thousand": 125}),
-            (p_vigesimal, 20, "Vigesimal (Base-20)", {"hundred": 400, "thousand": 8000}),
-            (p_decimal, 10, "Decimal (Base-10)", {"hundred": 100, "thousand": 1000}),
-            (p_duodecimal, 12, "Duodecimal (Base-12)", {"hundred": 144, "thousand": 1728}),
-            (p_sexagesimal, 60, "Sexagesimal (Base-60)", {"hundred": 3600, "thousand": 216000}),
+            (attn[0] * 0.70 + max(0.0, 0.8 - pop * 0.6), 5, "Quinary (Base-5)", {"hundred": 25, "thousand": 125}),
+            (attn[1] * 0.50 + attn[3] * 0.50 + max(0.0, 0.5 - infra * 0.2), 20, "Vigesimal (Base-20)", {"hundred": 400, "thousand": 8000}),
+            (attn[5] * 0.50 + attn[6] * 0.40 + math.tanh(pop * 0.25), 10, "Decimal (Base-10)", {"hundred": 100, "thousand": 1000}),
+            (attn[6] * 0.60 + math.tanh(infra * 0.20) * 0.50, 12, "Duodecimal (Base-12)", {"hundred": 144, "thousand": 1728}),
+            (math.tanh(infra * 0.35) * 0.80 + math.tanh(pop * 0.20) * 0.40, 60, "Sexagesimal (Base-60)", {"hundred": 3600, "thousand": 216000}),
         ]
         best = max(scores, key=lambda x: x[0])
         return best[1], best[2], best[3]
@@ -152,8 +127,7 @@ class ContinuousNumeralSystem:
             q, r = divmod(val, sub_base)
             toks: list[str] = []
             if q > 1 and q in digits:
-                sb_str = _render_surface(digits[sub_base], lang)
-                q_str = _render_surface(digits[q], lang)
+                sb_str, q_str = _render_surface(digits[sub_base], lang), _render_surface(digits[q], lang)
                 toks.extend([sb_str, q_str] if h < 0.50 else [q_str, sb_str])
             else:
                 toks.append(_render_surface(digits[sub_base], lang))
@@ -168,49 +142,33 @@ class ContinuousNumeralSystem:
             return paradigm.formatted_cache[val]
 
         base = paradigm.numeral_chain.primary_base
-        digits = paradigm.digits
-        radix_words = paradigm.radix_words
+        digits, radix_words = paradigm.digits, paradigm.radix_words
         h = lang.profile.head_directionality
         sub_base = 10 if 10 in digits else (5 if 5 in digits else max(digits.keys(), default=1))
 
         if val in digits:
             res = f"/{_render_surface(digits[val], lang)}/"
-            paradigm.formatted_cache[val] = res
-            return res
-
-        if val == base and "base" in radix_words:
+        elif val == base and "base" in radix_words:
             res = f"/{_render_surface(radix_words['base'], lang)}/"
-            paradigm.formatted_cache[val] = res
-            return res
-
-        hundred_val = paradigm.numeral_chain.higher_units.get("hundred", base * base)
-        if val == hundred_val and "hundred" in radix_words:
+        elif val == paradigm.numeral_chain.higher_units.get("hundred", base * base) and "hundred" in radix_words:
             res = f"/{_render_surface(radix_words['hundred'], lang)}/"
-            paradigm.formatted_cache[val] = res
-            return res
+        else:
+            q, r = divmod(val, base)
+            tokens: list[str] = []
+            if q > 0 and "base" in radix_words:
+                b_str = _render_surface(radix_words["base"], lang)
+                if q > 1:
+                    q_toks = cls._decompose_subbase(q, digits, sub_base, h, lang)
+                    tokens.extend(([b_str] + q_toks) if h < 0.50 else (q_toks + [b_str]))
+                else:
+                    tokens.append(b_str)
+            if r > 0:
+                tokens.extend(cls._decompose_subbase(r, digits, sub_base, h, lang))
+            res = f"/{'-'.join(tokens)}/" if tokens else f"/{val}/"
 
-        q, r = divmod(val, base)
-        tokens: list[str] = []
-
-        if q > 0 and "base" in radix_words:
-            b_str = _render_surface(radix_words["base"], lang)
-            if q > 1:
-                q_toks = cls._decompose_subbase(q, digits, sub_base, h, lang)
-                tokens.extend(([b_str] + q_toks) if h < 0.50 else (q_toks + [b_str]))
-            else:
-                tokens.append(b_str)
-
-        if r > 0:
-            tokens.extend(cls._decompose_subbase(r, digits, sub_base, h, lang))
-
-        res = f"/{'-'.join(tokens)}/" if tokens else f"/{val}/"
         paradigm.formatted_cache[val] = res
         return res
 
-
-# -----------------------------------------------------------------------------
-# 2. NOUN PHRASE & MORPHOSYNTAX
-# -----------------------------------------------------------------------------
 
 @dataclass
 class NounPhrase:
@@ -237,31 +195,26 @@ class NounPhrase:
 
         base_noun = self.head_noun
         is_class_bound = False
-        # Trudgill law: Noun class prefixing erodes and drops in larger populations
         if agr_op and len(paradigm.noun_classes) >= 2 and pop < 1.20:
             base_noun, is_class_bound = GrammarEngine.apply_spatial_relator(self.head_noun, agr_op, lang, category_type="class")
 
-        if self.numeral_value and self.numeral_value > 1 and self.number_label == "Sg":
-            if "pl" in paradigm.number_operators:
-                self.number_operator = paradigm.number_operators["pl"]
-                self.number_label = "Pl"
+        num_op = self.number_operator
+        num_lbl = self.number_label
+        if self.numeral_value and self.numeral_value > 1 and num_lbl == "Sg" and "pl" in paradigm.number_operators:
+            num_op = paradigm.number_operators["pl"]
+            num_lbl = "Pl"
 
         is_num_bound = False
-        if self.number_operator and self.number_label != "Sg":
-            base_noun, is_num_bound = GrammarEngine.apply_spatial_relator(base_noun, self.number_operator, lang, category_type="number")
+        if num_op and num_lbl != "Sg":
+            base_noun, is_num_bound = GrammarEngine.apply_spatial_relator(base_noun, num_op, lang, category_type="number")
 
         num_tokens, num_gloss = [], []
         if self.numeral_value is not None:
-            raw_num = GrammarEngine.format_numeral(self.numeral_value, lang, paradigm).strip("/")
-            num_tokens.append(raw_num)
+            num_tokens.append(GrammarEngine.format_numeral(self.numeral_value, lang, paradigm).strip("/"))
             num_gloss.append(f"[Num:{self.numeral_value}]")
 
-        art_op = None
-        art_label = ""
-        if self.is_definite is True and "def" in paradigm.articles:
-            art_op = paradigm.articles["def"]
-            art_label = "Def"
-
+        art_op = paradigm.articles["def"] if (self.is_definite is True and "def" in paradigm.articles) else None
+        art_label = "Def" if art_op else ""
         art_tokens, art_gloss = [], []
         is_art_bound = False
         if art_op:
@@ -271,21 +224,20 @@ class NounPhrase:
                 art_gloss = [f"[{art_label}:{art_op.id}]"]
 
         adp_tokens, adp_gloss = [], []
-
         if self.case_operator:
             inflected_noun, is_bound = GrammarEngine.apply_spatial_relator(base_noun, self.case_operator, lang, category_type="case")
             if is_bound:
                 n_form = _render_surface(inflected_noun, lang)
                 tags = [self.case_label]
                 if is_art_bound: tags.append(art_label)
-                if is_num_bound: tags.append(self.number_label)
+                if is_num_bound: tags.append(num_lbl)
                 if is_class_bound and cls_tag: tags.append(cls_tag)
                 n_gloss = f"{self.head_noun.id}[{'+'.join(tags)}]"
             else:
                 n_form = _render_surface(base_noun, lang)
                 tags = []
                 if is_art_bound: tags.append(art_label)
-                if is_num_bound: tags.append(self.number_label)
+                if is_num_bound: tags.append(num_lbl)
                 if is_class_bound and cls_tag: tags.append(cls_tag)
                 tag_str = f"[{'+'.join(tags)}]" if tags else ""
                 n_gloss = f"{self.head_noun.id}{tag_str}"
@@ -295,57 +247,35 @@ class NounPhrase:
             n_form = _render_surface(base_noun, lang)
             tags = [self.case_label] if self.case_label not in ("Nom", "Abs") else []
             if is_art_bound: tags.append(art_label)
-            if is_num_bound: tags.append(self.number_label)
+            if is_num_bound: tags.append(num_lbl)
             if is_class_bound and cls_tag: tags.append(cls_tag)
             tag_str = f"[{'+'.join(tags)}]" if tags else ""
             n_gloss = f"{self.head_noun.id}{tag_str}"
 
-        mod_tokens, mod_gloss = [], []
-        if self.modifier:
-            mod_tokens.append(_render_surface(self.modifier, lang))
-            mod_gloss.append(f"{self.modifier.id}[Adj]")
-
-        det_tokens, det_gloss = [], []
-        if self.determiner:
-            det_tokens.append(_render_surface(self.determiner, lang))
-            det_gloss.append(f"[Det:{self.determiner.id}]")
-
-        poss_tokens, poss_gloss = [], []
-        if self.possessor:
-            poss_tokens.append(_render_surface(self.possessor, lang))
-            poss_gloss.append(f"[Poss:{self.possessor.id}]")
-
-        r_adp = 0.5 * (1.0 - h) + 7.5 * h
-        r_art = 1.0 * (1.0 - h) + 6.0 * h
-        r_poss = 2.0 * (1.0 - h) + 5.0 * h
-        r_num = 3.0 * (1.0 - h) + 4.0 * h
-        r_det = 3.5 * (1.0 - h) + 2.0 * h
-        r_noun = 5.0 * (1.0 - h) + 2.5 * h
-        r_mod = 6.0 * (1.0 - h) + 3.0 * h
+        mod_tokens = [_render_surface(self.modifier, lang)] if self.modifier else []
+        mod_gloss = [f"{self.modifier.id}[Adj]"] if self.modifier else []
+        det_tokens = [_render_surface(self.determiner, lang)] if self.determiner else []
+        det_gloss = [f"[Det:{self.determiner.id}]"] if self.determiner else []
+        poss_tokens = [_render_surface(self.possessor, lang)] if self.possessor else []
+        poss_gloss = [f"[Poss:{self.possessor.id}]"] if self.possessor else []
 
         components = [
-            ("adp", adp_tokens, adp_gloss, r_adp),
-            ("art", art_tokens, art_gloss, r_art),
-            ("poss", poss_tokens, poss_gloss, r_poss),
-            ("num", num_tokens, num_gloss, r_num),
-            ("det", det_tokens, det_gloss, r_det),
-            ("noun", [n_form], [n_gloss], r_noun),
-            ("mod", mod_tokens, mod_gloss, r_mod),
+            (adp_tokens, adp_gloss, 0.5 * (1.0 - h) + 7.5 * h),
+            (art_tokens, art_gloss, 1.0 * (1.0 - h) + 6.0 * h),
+            (poss_tokens, poss_gloss, 2.0 * (1.0 - h) + 5.0 * h),
+            (num_tokens, num_gloss, 3.0 * (1.0 - h) + 4.0 * h),
+            (det_tokens, det_gloss, 3.5 * (1.0 - h) + 2.0 * h),
+            ([n_form], [n_gloss], 5.0 * (1.0 - h) + 2.5 * h),
+            (mod_tokens, mod_gloss, 6.0 * (1.0 - h) + 3.0 * h),
         ]
-        components.sort(key=lambda item: item[3])
+        components.sort(key=lambda item: item[2])
 
-        tokens: list[str] = []
-        glosses: list[str] = []
-        for _, t_list, g_list, _ in components:
+        tokens, glosses = [], []
+        for t_list, g_list, _ in components:
             tokens.extend(t_list)
             glosses.extend(g_list)
-
         return " ".join(t for t in tokens if t), " ".join(g for g in glosses if g)
 
-
-# -----------------------------------------------------------------------------
-# 3. GRAMMAR ENGINE
-# -----------------------------------------------------------------------------
 
 class GrammarEngine:
     @classmethod
@@ -364,24 +294,20 @@ class GrammarEngine:
         p_list = list(operator.phonemes)
         if len(p_list) <= 2:
             return p_list
-
         vowels = [p for p in p_list if p.is_vowel]
         if vowels:
             v_idx = p_list.index(vowels[0])
             if v_idx > 0:
                 return [p_list[v_idx - 1], p_list[v_idx]]
-            elif v_idx + 1 < len(p_list):
+            if v_idx + 1 < len(p_list):
                 return [p_list[v_idx], p_list[v_idx + 1]]
             return [vowels[0]]
-
         return [max(p_list, key=lambda p: p.energy.acoustic_salience)]
 
     @classmethod
     def should_fuse_morpheme(cls, host_word: Word, operator: Word, lang: Language, is_prefix: bool = False) -> bool:
         s_idx = getattr(lang.profile, "synthesis_index", 0.50)
         pop = getattr(lang, "population", 0.50)
-
-        # High population penalizes synthesis (Lupyan & Dale sociolinguistic law)
         eff_s = s_idx * max(0.20, 1.0 - pop * 0.35)
 
         if host_word.phonemes and operator.phonemes:
@@ -392,8 +318,7 @@ class GrammarEngine:
             boundary_friction = 0.0
 
         fusion_potential = (eff_s * 4.0) - (0.95 + boundary_friction * 0.25)
-        p_fuse = 1.0 / (1.0 + math.exp(-5.0 * fusion_potential))
-        return p_fuse >= 0.50
+        return (1.0 / (1.0 + math.exp(-5.0 * fusion_potential))) >= 0.50
 
     @classmethod
     def apply_spatial_relator(
@@ -410,29 +335,17 @@ class GrammarEngine:
             return noun.copy(), False
 
         affix_phonemes = cls.compress_bound_affix(operator)
-        m_stem_list = [m.copy() for m in noun.morphemes] if noun.morphemes else [Morpheme(noun.phonemes, root_family_id=noun.derivation.root_family_id)]
+        m_stem = [m.copy() for m in noun.morphemes] if noun.morphemes else [Morpheme(noun.phonemes, root_family_id=noun.derivation.root_family_id)]
         m_case = Morpheme(affix_phonemes, root_family_id=operator.derivation.root_family_id, is_grammatical=True, stage=ClineStage.BOUND_AFFIX)
-
-        morphemes = [m_case] + m_stem_list if is_prefix else m_stem_list + [m_case]
-        raw_phonemes = affix_phonemes + noun.phonemes if is_prefix else noun.phonemes + affix_phonemes
 
         inflected_word = Word(
             vector=noun.vector,
-            phonemes=raw_phonemes,
-            morphemes=morphemes,
+            phonemes=repair_phonemes(affix_phonemes + noun.phonemes if is_prefix else noun.phonemes + affix_phonemes, profile=lang.profile),
+            morphemes=[m_case] + m_stem if is_prefix else m_stem + [m_case],
             derivation=DerivationRecord(root_family_id=noun.derivation.root_family_id, derivation_type=DerivationType.AFFIXATION, local_parent_ids=(noun.id,)),
             category=LexicalCategory.CONTENT_OPEN,
             is_ephemeral=True,
         )
-
-        prof = lang.profile if lang else None
-        if prof:
-            inflected_word.phonemes = repair_phonemes(inflected_word.phonemes, profile=prof)
-            apply_prosody(
-                inflected_word,
-                directional_bias=getattr(prof, "metrical_bias", 0.50),
-                syllable_complexity=getattr(prof, "syllable_complexity", 0.50),
-            )
         return inflected_word, True
 
     @classmethod
@@ -440,8 +353,6 @@ class GrammarEngine:
         if not paradigm.noun_classes:
             return None
         return min(paradigm.noun_classes, key=lambda c: noun.vector.distance_to(c.centroid))
-
-    # --- TYPOLOGICAL QUERY METHODS ---
 
     @classmethod
     def get_alignment_system(cls, lang: Language) -> str:
@@ -455,7 +366,6 @@ class GrammarEngine:
         para = paradigm or cls.discover_grammar_system(lang)
         h = lang.profile.head_directionality
         theme_op = para.verb_classes[0].thematic_marker if para.verb_classes else None
-
         if not theme_op:
             return f"/{cls.render_surface(verb, lang)}/"
 
@@ -463,8 +373,7 @@ class GrammarEngine:
         if is_b:
             return f"/{cls.render_surface(inf_verb, lang)}/"
 
-        t_str = cls.render_surface(theme_op, lang)
-        v_str = cls.render_surface(verb, lang)
+        t_str, v_str = cls.render_surface(theme_op, lang), cls.render_surface(verb, lang)
         return f"/{t_str} {v_str}/" if h >= 0.5 else f"/{v_str} {t_str}/"
 
     @classmethod
@@ -479,50 +388,35 @@ class GrammarEngine:
         lang: Language | None = None,
         is_past_or_perfective: bool = False,
     ) -> tuple[Word, list[Word], bool, list[str]]:
-        bound_labels = []
-        free_particles = []
+        bound_labels, free_particles = [], []
         stem_word = verb
-
         s_idx = getattr(lang.profile, "synthesis_index", 0.50) if lang else 0.50
         h = getattr(lang.profile, "head_directionality", 0.50) if lang else 0.50
 
         active_person_op = person_op if s_idx >= 0.35 else None
-        ops = [(temporal_op, "TAM"), (modal_op, "Mod"), (active_person_op, person_label)]
-
-        for op, label in ops:
+        for op, label in ((temporal_op, "TAM"), (modal_op, "Mod"), (active_person_op, person_label)):
             if op is None:
                 continue
             if lang and cls.should_fuse_morpheme(stem_word, op, lang, is_prefix=(h > 0.50)):
                 affix_p = cls.compress_bound_affix(op)
                 m_op = Morpheme(affix_p, root_family_id=op.derivation.root_family_id, is_grammatical=True, stage=ClineStage.BOUND_AFFIX)
                 m_stem = Morpheme(stem_word.phonemes, root_family_id=stem_word.derivation.root_family_id)
-                new_morphemes = [m_op, m_stem] if h > 0.50 else [m_stem, m_op]
-                raw_p = affix_p + stem_word.phonemes if h > 0.50 else stem_word.phonemes + affix_p
-
                 stem_word = Word(
                     vector=stem_word.vector,
-                    phonemes=raw_p,
-                    morphemes=new_morphemes,
+                    phonemes=affix_p + stem_word.phonemes if h > 0.50 else stem_word.phonemes + affix_p,
+                    morphemes=[m_op, m_stem] if h > 0.50 else [m_stem, m_op],
                     derivation=stem_word.derivation,
                     category=LexicalCategory.CONTENT_OPEN,
-                    is_ephemeral=True
+                    is_ephemeral=True,
                 )
                 bound_labels.append(label)
             else:
                 free_particles.append(op)
 
         if bound_labels and lang:
-            prof = lang.profile
-            stem_word.phonemes = repair_phonemes(stem_word.phonemes, profile=prof)
-            apply_prosody(
-                stem_word,
-                directional_bias=getattr(prof, "metrical_bias", 0.50),
-                syllable_complexity=getattr(prof, "syllable_complexity", 0.50),
-            )
+            stem_word.phonemes = repair_phonemes(stem_word.phonemes, profile=lang.profile)
 
         return stem_word, free_particles, False, bound_labels
-
-    # --- PARADIGM DISCOVERY ---
 
     @classmethod
     def discover_grammar_system(cls, lang: Language) -> EmergentParadigm:
@@ -535,7 +429,6 @@ class GrammarEngine:
         pop = getattr(lang, "population", 0.50)
         infra = getattr(lang, "infrastructure", 0.0)
 
-        # Natural Numeral Radix & Powers from Cultural State
         radix_base, radix_name, higher_powers = ContinuousNumeralSystem.determine_base(attn, pop, infra)
         num_chain = NumeralChain(primary_base=radix_base, name=radix_name, higher_units=higher_powers)
 
@@ -546,28 +439,25 @@ class GrammarEngine:
             SemanticSpace.SUN, SemanticSpace.EARTH,
         ]
         used_digit_ids: set[int] = set()
-        digits: dict[int, Word] = {}
-        max_digit = min(len(digit_anchors), radix_base - 1)
-        for d in range(1, max_digit + 1):
-            digits[d] = ContinuousNumeralSystem.resolve_numeral_word(
-                d, lang, digit_anchors[d - 1], max(10.0, 20.0 - d), exclude_ids=used_digit_ids
-            )
+        digits = {
+            d: ContinuousNumeralSystem.resolve_numeral_word(d, lang, digit_anchors[d - 1], max(10.0, 20.0 - d), exclude_ids=used_digit_ids)
+            for d in range(1, min(len(digit_anchors), radix_base - 1) + 1)
+        }
 
-        radix_words: dict[str, Word] = {
+        radix_words = {
             "base": ContinuousNumeralSystem.resolve_numeral_word(radix_base, lang, SemanticSpace.BODY, 20.0),
             "hundred": ContinuousNumeralSystem.resolve_numeral_word(higher_powers["hundred"], lang, SemanticSpace.TREE, 15.0),
             "thousand": ContinuousNumeralSystem.resolve_numeral_word(higher_powers["thousand"], lang, SemanticSpace.EARTH, 14.0),
         }
 
-        # Case & Relational Operators
-        v_loc = ContinuousNumeralSystem.resolve_numeral_word(101, lang, SemanticVector(0.1, 0.0, 0.5, 0.2, 0.0, 0.0, 0.9), 16.0)
-        v_dat = ContinuousNumeralSystem.resolve_numeral_word(102, lang, SemanticVector(0.2, 0.4, 0.6, 0.4, 0.5, 0.8, 0.3), 16.0)
-        v_erg = ContinuousNumeralSystem.resolve_numeral_word(103, lang, SemanticVector(0.2, 0.3, 0.5, 0.9, 0.8, 0.3, 0.4), 16.0)
-        v_acc = ContinuousNumeralSystem.resolve_numeral_word(104, lang, SemanticVector(0.3, 0.0, 0.4, 0.2, 0.2, 0.2, 0.5), 16.0)
-        spatials = [v_loc, v_dat, v_erg, v_acc]
-
+        spatials = [
+            ContinuousNumeralSystem.resolve_numeral_word(101, lang, SemanticVector(0.1, 0.0, 0.5, 0.2, 0.0, 0.0, 0.9), 16.0),
+            ContinuousNumeralSystem.resolve_numeral_word(102, lang, SemanticVector(0.2, 0.4, 0.6, 0.4, 0.5, 0.8, 0.3), 16.0),
+            ContinuousNumeralSystem.resolve_numeral_word(103, lang, SemanticVector(0.2, 0.3, 0.5, 0.9, 0.8, 0.3, 0.4), 16.0),
+            ContinuousNumeralSystem.resolve_numeral_word(104, lang, SemanticVector(0.3, 0.0, 0.4, 0.2, 0.2, 0.2, 0.5), 16.0),
+        ]
         v_past = ContinuousNumeralSystem.resolve_numeral_word(105, lang, SemanticVector(0.1, 0.1, 0.5, 0.3, 0.9, 0.2, 0.7), 16.0)
-        v_mod  = ContinuousNumeralSystem.resolve_numeral_word(106, lang, SemanticVector(0.2, 0.4, 0.6, 0.8, 0.5, 0.4, 0.2), 14.0)
+        v_mod = ContinuousNumeralSystem.resolve_numeral_word(106, lang, SemanticVector(0.2, 0.4, 0.6, 0.8, 0.5, 0.4, 0.2), 14.0)
 
         pronouns = {
             "1sg": ContinuousNumeralSystem.resolve_numeral_word(201, lang, SemanticSpace.SELF, 22.0),
@@ -576,17 +466,13 @@ class GrammarEngine:
             "1pl": ContinuousNumeralSystem.resolve_numeral_word(204, lang, SemanticSpace.MANY, 18.0),
         }
 
-        # Continuous Alignment Rotation (Potency vs Sociality)
         align_angle = float(min(math.pi / 2.0, max(0.0, (attn[3] / (attn[5] + 0.1)) * 0.45 * (math.pi / 2.0))))
 
-        # Sociolinguistic Law: Noun classes dissolve in large populations
         noun_classes: list[EmergentClass] = []
         if s_idx > 0.35 and pop < 1.20:
-            m_anim = ContinuousNumeralSystem.resolve_numeral_word(301, lang, SemanticSpace.PERSON, 18.0)
-            m_inan = ContinuousNumeralSystem.resolve_numeral_word(302, lang, SemanticSpace.STONE, 18.0)
             noun_classes = [
-                EmergentClass(class_id=1, label="Animate", centroid=SemanticSpace.PERSON, marker=m_anim),
-                EmergentClass(class_id=2, label="Inanimate", centroid=SemanticSpace.STONE, marker=m_inan),
+                EmergentClass(1, "Animate", SemanticSpace.PERSON, ContinuousNumeralSystem.resolve_numeral_word(301, lang, SemanticSpace.PERSON, 18.0)),
+                EmergentClass(2, "Inanimate", SemanticSpace.STONE, ContinuousNumeralSystem.resolve_numeral_word(302, lang, SemanticSpace.STONE, 18.0)),
             ]
 
         articles = {}
@@ -596,42 +482,36 @@ class GrammarEngine:
         else:
             art_system = "Transdefinite (No Articles)"
 
-        number_operators = {
-            "pl": ContinuousNumeralSystem.resolve_numeral_word(501, lang, SemanticSpace.MANY, 20.0)
-        }
-
+        number_operators = {"pl": ContinuousNumeralSystem.resolve_numeral_word(501, lang, SemanticSpace.MANY, 20.0)}
         strat_mode = "fusional" if (s_idx > 0.65 and pop < 1.0) else ("agglutinative" if s_idx > 0.35 else "analytic")
         theme_cand = ContinuousNumeralSystem.resolve_numeral_word(601, lang, SemanticVector(0.4, 0.6, 0.5, 0.6, 0.7, 0.4, 0.3), 16.0)
 
-        emergent_verb_classes = [
-            EmergentVerbClass(
-                class_id=1,
-                label=f"Regular ({strat_mode.capitalize()})",
-                centroid=theme_cand.vector,
-                thematic_marker=theme_cand,
-                aspect_label=strat_mode.capitalize(),
-                morph_strategy=strat_mode,
-            )
-        ]
-
         paradigm = EmergentParadigm(
-            temporal_operators=[v_past], spatial_operators=spatials,
+            temporal_operators=[v_past],
+            spatial_operators=spatials,
             determiners=[ContinuousNumeralSystem.resolve_numeral_word(701, lang, SemanticSpace.THIS)],
-            modal_operators=[v_mod], noun_classes=noun_classes, verb_classes=emergent_verb_classes,
+            modal_operators=[v_mod],
+            noun_classes=noun_classes,
+            verb_classes=[EmergentVerbClass(1, f"Regular ({strat_mode.capitalize()})", theme_cand.vector, theme_cand, strat_mode.capitalize(), strat_mode)],
             relativizers=[ContinuousNumeralSystem.resolve_numeral_word(702, lang, SemanticSpace.THIS)],
             complementizers=[ContinuousNumeralSystem.resolve_numeral_word(703, lang, SemanticSpace.THAT)],
-            pronouns=pronouns, number_system="Singular / Plural", number_operators=number_operators,
-            article_system=art_system, articles=articles, numeral_chain=num_chain, digits=digits,
-            radix_words=radix_words, formatted_cache={}, alignment_angle=align_angle
+            pronouns=pronouns,
+            number_system="Singular / Plural",
+            number_operators=number_operators,
+            article_system=art_system,
+            articles=articles,
+            numeral_chain=num_chain,
+            digits=digits,
+            radix_words=radix_words,
+            formatted_cache={},
+            alignment_angle=align_angle,
         )
-
         lang._cached_grammar_paradigm = paradigm
         return paradigm
 
     @classmethod
     def format_numeral(cls, value: int, lang: Language, paradigm: EmergentParadigm | None = None) -> str:
-        para = paradigm or cls.discover_grammar_system(lang)
-        return ContinuousNumeralSystem.format_combinatorial_numeral(value, lang, para)
+        return ContinuousNumeralSystem.format_combinatorial_numeral(value, lang, paradigm or cls.discover_grammar_system(lang))
 
     @classmethod
     def get_citation_presentation(
@@ -645,31 +525,21 @@ class GrammarEngine:
             assigned_cls = cls.assign_noun_class(word, para)
             cls_label = assigned_cls.label if assigned_cls else None
             surf_word = cls.render_surface(word, lang)
-
             if assigned_cls and assigned_cls.marker and len(para.noun_classes) >= 2 and getattr(lang, "population", 0.5) < 1.20:
-                p_aff = cls.compress_bound_affix(assigned_cls.marker)
-                aff_str = "".join(p.ipa for p in p_aff)
+                aff_str = "".join(p.ipa for p in cls.compress_bound_affix(assigned_cls.marker))
                 clean_display = f"{aff_str}-{surf_word}"
             else:
                 clean_display = surf_word
-
-            return clean_display, word.plain_form, {
-                "pos": "Noun", "class": cls_label, "case": "Nom" if alignment == "nominative_accusative" else "Abs"
-            }
-        elif pos == "Verb":
+            return clean_display, word.plain_form, {"pos": "Noun", "class": cls_label, "case": "Nom" if alignment == "nominative_accusative" else "Abs"}
+        if pos == "Verb":
             inf_str = cls.get_infinitive_form(word, lang, para)
-            return inf_str.strip("/"), word.plain_form, {
-                "pos": "Verb", "infinitive": inf_str,
-                "strategy": para.verb_classes[0].morph_strategy if para.verb_classes else "analytic",
-            }
-        else:
-            return cls.render_surface(word, lang), word.plain_form, {"pos": pos}
+            return inf_str.strip("/"), word.plain_form, {"pos": "Verb", "infinitive": inf_str, "strategy": para.verb_classes[0].morph_strategy if para.verb_classes else "analytic"}
+        return cls.render_surface(word, lang), word.plain_form, {"pos": pos}
 
     @classmethod
     def get_noun_declension_table(cls, noun: Word, lang: Language, paradigm: EmergentParadigm | None = None) -> dict[str, str]:
         para = paradigm or cls.discover_grammar_system(lang)
         alignment = cls.get_alignment_system(lang)
-        grid: dict[str, str] = {}
         spatials = para.spatial_operators
         if not spatials:
             return {}
@@ -684,45 +554,36 @@ class GrammarEngine:
             ("Abs" if alignment == "ergative_absolutive" else "Nom", None),
             ("Erg" if alignment == "ergative_absolutive" else "Acc", erg_word if alignment == "ergative_absolutive" else acc_word),
             ("Dat", dat_word),
-            ("Loc", loc_word)
+            ("Loc", loc_word),
         ]
 
+        grid: dict[str, str] = {}
         pl_op = para.number_operators.get("pl")
-        for num_label in ["Sg", "Pl"]:
+        for num_label in ("Sg", "Pl"):
             num_op = pl_op if num_label == "Pl" else None
             for case_label, case_op in cases:
-                np_bare = NounPhrase(
+                form_bare, _ = NounPhrase(
                     head_noun=noun, assigned_class=assigned_cls, case_operator=case_op,
-                    case_label=case_label, number_operator=num_op, number_label=num_label
-                )
-                form_bare, _ = np_bare.render(lang)
+                    case_label=case_label, number_operator=num_op, number_label=num_label,
+                ).render(lang)
                 grid[f"{case_label}.{num_label}"] = f"/{form_bare}/"
-
         return grid
 
     @classmethod
     def get_verb_conjugation_table(cls, verb: Word, lang: Language, paradigm: EmergentParadigm | None = None) -> dict[str, str]:
         para = paradigm or cls.discover_grammar_system(lang)
-        conj: dict[str, str] = {}
+        conj: dict[str, str] = {"Infinitive": cls.get_infinitive_form(verb, lang, para)}
         h = lang.profile.head_directionality
-
-        conj["Infinitive"] = cls.get_infinitive_form(verb, lang, para)
         t_op = para.temporal_operators[0] if para.temporal_operators else None
 
-        for p_key in ["1sg", "2sg", "3sg", "1pl"]:
-            p_op = para.pronouns.get(p_key)
-            v_form, free_p, _, _ = cls.inflect_predicate(verb, temporal_op=None, modal_op=None, agreement_op=None, person_op=p_op, person_label=p_key, lang=lang)
-            v_str = cls.render_surface(v_form, lang)
-            p_strs = [cls.render_surface(p, lang) for p in free_p]
-            tokens = p_strs + [v_str] if h >= 0.5 else [v_str] + p_strs
-            conj[f"Pres.{p_key}"] = f"/{' '.join(tokens)}/"
+        for p_key in ("1sg", "2sg", "3sg", "1pl"):
+            v_form, free_p, _, _ = cls.inflect_predicate(verb, None, None, None, para.pronouns.get(p_key), p_key, lang)
+            v_str, p_strs = cls.render_surface(v_form, lang), [cls.render_surface(p, lang) for p in free_p]
+            conj[f"Pres.{p_key}"] = f"/{' '.join(p_strs + [v_str] if h >= 0.5 else [v_str] + p_strs)}/"
 
-        for p_key in ["1sg", "3sg"]:
-            p_op = para.pronouns.get(p_key)
-            v_form, free_p, _, _ = cls.inflect_predicate(verb, temporal_op=t_op, modal_op=None, agreement_op=None, person_op=p_op, person_label=p_key, lang=lang, is_past_or_perfective=True)
-            v_str = cls.render_surface(v_form, lang)
-            p_strs = [cls.render_surface(p, lang) for p in free_p]
-            tokens = p_strs + [v_str] if h >= 0.5 else [v_str] + p_strs
-            conj[f"Past.{p_key}"] = f"/{' '.join(tokens)}/"
+        for p_key in ("1sg", "3sg"):
+            v_form, free_p, _, _ = cls.inflect_predicate(verb, t_op, None, None, para.pronouns.get(p_key), p_key, lang, is_past_or_perfective=True)
+            v_str, p_strs = cls.render_surface(v_form, lang), [cls.render_surface(p, lang) for p in free_p]
+            conj[f"Past.{p_key}"] = f"/{' '.join(p_strs + [v_str] if h >= 0.5 else [v_str] + p_strs)}/"
 
         return conj

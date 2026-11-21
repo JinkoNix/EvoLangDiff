@@ -1,8 +1,5 @@
 """
-visualizer.py — Continuous Spatial Diffusion Server & Dialect Observer.
-Includes zero-copy binary Float32Array streaming (/api/state_bin, /api/step_bin)
-and on-demand RIFF/WAVE speech audio synthesis (/api/audio).
-Part of the EvoLangDiff Engine.
+visualizer.py — Spatial Diffusion Server, Binary Frame Streamer, and Audio Synthesis API.
 """
 
 from __future__ import annotations
@@ -11,14 +8,16 @@ import json
 import os
 import struct
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 import numpy as np
 
-from world_grid import WorldGrid
-from lexicon import LexiconGenerator
+from acoustics import AcousticEngine
+from phonetics import _CANONICAL_ATTRACTORS
 from probe import DialectProbe
+from word import Phoneme, repair_phonemes
+from world_grid import WorldGrid
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -30,23 +29,18 @@ class DiffusionSimulationState:
     def __init__(self, size: int = 64):
         self.size = size
         self.lock = threading.Lock()
-        self.proto_lexicon = LexiconGenerator.populate_proto_lexicon(population=0.50)
-        self.grid = WorldGrid(size=size, seed=42, proto_roots=self.proto_lexicon)
+        self.grid = WorldGrid(size=size, seed=42)
         self.events: list[str] = [
-            f"Primordial Hearth founded with {len(self.proto_lexicon)} ancestral roots.",
-            "Continuous 2D Planetary Manifold initialized."
+            f"Initialized {len(self.grid.polities)} independent Proto-Language Families.",
+            f"Global Lexical Manifold seeded with {len(self.grid.lexical_manifold)} autonomous roots.",
         ]
 
     def step(self, epochs: int = 1):
         with self.lock:
             for _ in range(epochs):
                 self.grid.step(dt=1.0)
-
-            t = self.grid.epoch
-            active_words = len(self.grid.lexical_manifold)
-            active_polities = len(self.grid.polities)
             self.events.append(
-                f"Epoch {t}: Active Sovereignties: {active_polities} | Global Living Roots: {active_words}."
+                f"Epoch {self.grid.epoch}: Active Sovereignties: {len(self.grid.polities)} | Global Living Roots: {len(self.grid.lexical_manifold)}."
             )
             if len(self.events) > 30:
                 self.events = self.events[-30:]
@@ -55,7 +49,6 @@ class DiffusionSimulationState:
         h_max = np.max(self.grid.hegemony, axis=-1)
         h_sum = np.sum(self.grid.hegemony, axis=-1, keepdims=True)
         h_norm = np.where(h_sum > 0.01, self.grid.hegemony / np.maximum(0.01, h_sum), 0.0)
-
         dom_hegemony = np.where(h_max >= 0.05, np.argmax(self.grid.hegemony, axis=-1), -1)
 
         has_pop = (self.grid.pop > 0.008) & (self.grid.elev > 0.0)
@@ -63,13 +56,11 @@ class DiffusionSimulationState:
             unclaimed_pop = has_pop & (dom_hegemony < 0)
             if unclaimed_pop.any():
                 active_p = self.grid.polities
-                dists = np.stack([p.dist_cells for p in active_p], axis=-1)
-                nearest_idx = np.argmin(dists, axis=-1)
+                nearest_idx = np.argmin(np.stack([p.dist_cells for p in active_p], axis=-1), axis=-1)
                 nearest_ids = np.array([p.id for p in active_p])[nearest_idx]
                 dom_hegemony = np.where(unclaimed_pop, nearest_ids, dom_hegemony)
 
         dom_strength = np.max(h_norm, axis=-1)
-
         color_map = {p.id: p.color for p in self.grid.polities}
         serialized_polities = [
             {
@@ -82,10 +73,7 @@ class DiffusionSimulationState:
                 "color": p.color,
                 "government_type": p.government_type,
                 "centralization": round(p.centralization, 2),
-                "institutionalization": round(
-                    min(1.0, 0.25 + 0.45 * p.centralization + (0.30 if p.is_standardized else 0.0)),
-                    2,
-                ),
+                "institutionalization": round(min(1.0, 0.25 + 0.45 * p.centralization + (0.30 if p.is_standardized else 0.0)), 2),
                 "is_standardized": p.is_standardized,
                 "standard_epoch": p.standard_epoch,
             }
@@ -153,12 +141,7 @@ class DiffusionSimulationState:
 
     def probe_coordinate(self, x: int, y: int) -> dict:
         with self.lock:
-            return DialectProbe.evoke_pixel_dialect(
-                self.grid,
-                x=x,
-                y=y,
-                epoch=self.grid.epoch,
-            )
+            return DialectProbe.evoke_pixel_dialect(self.grid, x=x, y=y, epoch=self.grid.epoch)
 
     def get_audio_wav(
         self,
@@ -168,47 +151,47 @@ class DiffusionSimulationState:
         phoneme: str | None = None,
         stage_idx: int | None = None,
     ) -> bytes:
-        """Synthesizes playable 16-bit 16kHz mono RIFF/WAVE audio on-demand."""
         with self.lock:
-            # 1. Phoneme symbol playback
             if phoneme:
-                from phonetics import _CANONICAL_ATTRACTORS
-                from acoustics import AcousticEngine
                 clean_sym = phoneme.replace("ː", "").replace("˥", "").replace("˦", "").replace("˧", "").replace("˨", "").replace("˩", "").strip("/")
                 base_sym = clean_sym.replace("ʰ", "")
                 attractor_dict = dict(_CANONICAL_ATTRACTORS)
-
                 if base_sym in attractor_dict:
-                    from phonetics import Phoneme
                     g = list(attractor_dict[base_sym])
                     if "ʰ" in clean_sym:
                         g[7] = 0.75
-                    dur = 1.35 if "ː" in phoneme else 1.0
-                    p = Phoneme(g, duration=dur)
+                    p = Phoneme(g, duration=1.35 if "ː" in phoneme else 1.0)
                     return AcousticEngine.synthesize_wav_pcm([p.vector], base_f0=120.0)
                 return b""
 
-            # 2. Localized dialect word playback (current or historical checkpoint)
             if word_id is not None and x is not None and y is not None:
-                from acoustics import AcousticEngine
-                from phonetics import Phoneme, repair_phonemes
+                cache_words = self.grid._probe_words_cache.get((x, y, self.grid.epoch))
+                w = cache_words.get(word_id) if cache_words else None
 
-                cache_words = getattr(self.grid, "_probe_words_cache", None)
-                w = None
-                if cache_words and (x, y, self.grid.epoch) in cache_words:
-                    w = cache_words[(x, y, self.grid.epoch)].get(word_id)
-
-                if not w:
-                    w = next((item for item in self.grid.lexical_manifold if item.id == word_id), None)
-
-                if w:
-                    # If requesting a historical ancestor checkpoint:
+                if w is not None:
                     if stage_idx is not None and 0 <= stage_idx < len(w.history):
-                        historical_tensor = w.history[stage_idx].tensor
-                        return AcousticEngine.synthesize_wav_pcm(list(historical_tensor), base_f0=120.0)
-
+                        return AcousticEngine.synthesize_wav_pcm(list(w.history[stage_idx].tensor), base_f0=120.0)
                     if w.phonemes:
                         return AcousticEngine.synthesize_wav_pcm([p.vector for p in w.phonemes], base_f0=120.0)
+
+                w_base = next((item for item in self.grid.lexical_manifold if item.id == word_id), None)
+                if not w_base:
+                    return b""
+                if stage_idx is not None and 0 <= stage_idx < len(w_base.history):
+                    return AcousticEngine.synthesize_wav_pcm(list(w_base.history[stage_idx].tensor), base_f0=120.0)
+
+                h_vec = self.grid.hegemony[y, x]
+                dom_id = int(np.argmax(h_vec)) if float(np.max(h_vec)) >= 0.25 else -1
+                dom_pol = next((p for p in self.grid.polities if p.id == dom_id), None)
+                base_ph = dom_pol.lexicon_phonemes.get(w_base.id, w_base.phonemes) if dom_pol else w_base.phonemes
+
+                phi = self.grid.phonetic_bias[y, x] + self.grid.phonetic_drift_field[y, x]
+                phi_v = phi.copy()
+                phi_v[7], phi_v[8] = 0.0, 0.0
+                warped = [Phoneme(np.clip(p.g + (phi_v if p.is_vowel else phi), 0.0, 1.0), duration=p.duration) for p in base_ph]
+                repaired = repair_phonemes(warped)
+                if repaired:
+                    return AcousticEngine.synthesize_wav_pcm([p.vector for p in repaired], base_f0=120.0)
 
             return b""
 
@@ -250,22 +233,19 @@ class EvoLangDiffHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/state":
             self._set_json()
-            payload = json.dumps(STATE.get_grid_state(), default=str)
-            self.wfile.write(payload.encode("utf-8"))
-
+            self.wfile.write(json.dumps(STATE.get_grid_state(), default=str).encode("utf-8"))
         elif parsed.path == "/api/state_bin":
             self._send_binary(STATE.get_grid_state_bin())
-
         elif parsed.path == "/api/audio":
             params = parse_qs(parsed.query)
-            x = int(params["x"][0]) if "x" in params else None
-            y = int(params["y"][0]) if "y" in params else None
-            word_id = int(params["word_id"][0]) if "word_id" in params else None
-            phoneme = params["phoneme"][0] if "phoneme" in params else None
-            stage_idx = int(params["stage_idx"][0]) if "stage_idx" in params else None
-            wav = STATE.get_audio_wav(x=x, y=y, word_id=word_id, phoneme=phoneme, stage_idx=stage_idx)
+            wav = STATE.get_audio_wav(
+                x=int(params["x"][0]) if "x" in params else None,
+                y=int(params["y"][0]) if "y" in params else None,
+                word_id=int(params["word_id"][0]) if "word_id" in params else None,
+                phoneme=params["phoneme"][0] if "phoneme" in params else None,
+                stage_idx=int(params["stage_idx"][0]) if "stage_idx" in params else None,
+            )
             self._send_audio_wav(wav)
-
         elif parsed.path in ("/", "/index.html"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -276,7 +256,7 @@ class EvoLangDiffHandler(BaseHTTPRequestHandler):
                 with open(html_p, "rb") as f:
                     self.wfile.write(f.read())
             else:
-                self.wfile.write(b"<h1>index.html not found. Place it in the project root.</h1>")
+                self.wfile.write(b"<h1>index.html not found.</h1>")
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -287,45 +267,32 @@ class EvoLangDiffHandler(BaseHTTPRequestHandler):
         data = json.loads(body) if body else {}
 
         if parsed.path == "/api/step":
-            epochs = int(data.get("epochs", 1))
-            STATE.step(epochs)
+            STATE.step(int(data.get("epochs", 1)))
             self._set_json()
             self.wfile.write(json.dumps(STATE.get_grid_state(), default=str).encode("utf-8"))
-
         elif parsed.path == "/api/step_bin":
-            epochs = int(data.get("epochs", 1))
-            STATE.step(epochs)
+            STATE.step(int(data.get("epochs", 1)))
             self._send_binary(STATE.get_grid_state_bin())
-
         elif parsed.path == "/api/probe":
-            x = int(data.get("x", 0))
-            y = int(data.get("y", 0))
-            res = STATE.probe_coordinate(x, y)
+            res = STATE.probe_coordinate(int(data.get("x", 0)), int(data.get("y", 0)))
             self._set_json()
             self.wfile.write(json.dumps(res, default=str).encode("utf-8"))
-
         elif parsed.path == "/api/audio":
-            x = data.get("x")
-            y = data.get("y")
-            word_id = data.get("word_id")
-            phoneme = data.get("phoneme")
-            wav = STATE.get_audio_wav(x=x, y=y, word_id=word_id, phoneme=phoneme)
+            wav = STATE.get_audio_wav(
+                x=data.get("x"), y=data.get("y"), word_id=data.get("word_id"),
+                phoneme=data.get("phoneme"), stage_idx=data.get("stage_idx"),
+            )
             self._send_audio_wav(wav)
-
         else:
             self.send_error(404, "Endpoint not found")
 
 
 def start_server(port: int = 8008):
     server = ThreadedHTTPServer(("", port), EvoLangDiffHandler)
-    print("\n==================================================================")
-    print("  EVOLANGDIFF CONTINUOUS MANIFOLD OBSERVER RUNNING")
-    print(f"  Open your browser at: http://localhost:{port}")
-    print("==================================================================\n")
+    print(f"\nEvoLangDiff Manifold Observer running at: http://localhost:{port}\n")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping server...")
         server.server_close()
 
 

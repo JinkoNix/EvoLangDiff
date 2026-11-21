@@ -1,7 +1,5 @@
 """
-word.py — Compact Lexical Container wrapping (L, 10) Continuous Articulatory Tensors.
-Preserves vectorized phonetic history checkpoints and renders IPA lazily on demand.
-Part of the EvoLangDiff Engine.
+word.py — Phoneme, Morpheme, and Word containers with vectorized diachronic history.
 """
 
 from __future__ import annotations
@@ -9,19 +7,23 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Sequence
+from typing import NamedTuple, Sequence
 import numpy as np
 
+from acoustics import AcousticEngine
 from phonetics import (
-    Phoneme,
-    Syllable,
-    word_energy,
+    REST_POSTURE,
+    STIFFNESS,
+    is_vowel_gesture,
+    oral_aperture,
     render_word_trajectory,
-    syllabify,
-    assign_stress,
+    resolve_tract_vector,
+    sensory_distance,
     trajectory_distance,
+    transition_cost,
+    word_energy,
 )
-from semantics import SemanticVector, DerivationRecord, DerivationType, ClineStage
+from semantics import ClineStage, DerivationRecord, DerivationType, SemanticVector
 
 
 class LexicalCategory(Enum):
@@ -31,10 +33,168 @@ class LexicalCategory(Enum):
 
 @dataclass
 class PhoneticHistoryEntry:
-    """Historical checkpoint storing only the compact (L, 10) tensor and metadata."""
     epoch: int
     tensor: np.ndarray
     event: str
+
+
+class PhonemeEnergy(NamedTuple):
+    motor_effort: float
+    air_consumption: float
+    voicing_drag: float
+    audibility_payoff: float
+
+    @property
+    def acoustic_salience(self) -> float:
+        return self.audibility_payoff
+
+
+class Phoneme:
+    __slots__ = ('_vector', '_ipa', '_energy', '_hash', '_is_v')
+
+    def __init__(self, vector: Sequence[float] | np.ndarray | Phoneme, duration: float | None = None):
+        if isinstance(vector, Phoneme):
+            vec = vector._vector.copy()
+            if duration is not None:
+                vec[9] = max(0.01, min(3.0, float(duration)))
+        else:
+            v = list(vector)
+            n = len(v)
+            if n == 9:
+                v.append(float(duration) if duration is not None else 1.0)
+            elif n == 10:
+                if duration is not None:
+                    v[9] = float(duration)
+            elif n == 8:
+                v.append(0.50)
+                v.append(float(duration) if duration is not None else 1.0)
+            else:
+                raise ValueError(f"Expected 8, 9, or 10 elements for Phoneme vector, got {n}")
+
+            vec = np.empty(10, dtype=np.float32)
+            for i in range(9):
+                x = float(v[i])
+                vec[i] = 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
+            tau = float(v[9])
+            vec[9] = 0.01 if tau < 0.01 else (3.0 if tau > 3.0 else tau)
+
+        vec.flags.writeable = False
+        self._vector = vec
+        self._ipa = None
+        self._energy = None
+        self._is_v = None
+        self._hash = hash(self._vector.tobytes())
+
+    @property
+    def vector(self) -> np.ndarray:
+        return self._vector
+
+    @property
+    def g(self) -> np.ndarray:
+        return self._vector[:9]
+
+    @property
+    def duration(self) -> float:
+        return float(self._vector[9])
+
+    @property
+    def tau(self) -> float:
+        return float(self._vector[9])
+
+    @property
+    def is_vowel(self) -> bool:
+        if self._is_v is None:
+            self._is_v = bool(is_vowel_gesture(self._vector[:9]))
+        return self._is_v
+
+    @property
+    def voc(self) -> float:
+        return 1.0 if self.is_vowel else 0.0
+
+    @property
+    def ipa(self) -> str:
+        if self._ipa is None:
+            base = resolve_tract_vector(self._vector[:9])
+            self._ipa = f"{base}ː" if self._vector[9] >= 1.35 else base
+        return self._ipa
+
+    @property
+    def energy(self) -> PhonemeEnergy:
+        if self._energy is None:
+            g = self._vector[:9]
+            tau = float(self._vector[9])
+            a_oral = float(oral_aperture(g))
+            e_mot = round(float(np.sum(STIFFNESS * ((g - REST_POSTURE) ** 2))) * tau, 3)
+            air = round(float((0.10 + 0.40 * a_oral + 0.12 * g[6]) * (0.30 + g[7]) * tau), 3)
+            v_drag = round(
+                0.24 * math.exp(-((g[7] - 0.40) / 0.14) ** 2) * math.exp(-15.0 * a_oral) * ((1.0 - g[6]) ** 2) * tau,
+                3,
+            )
+            af = AcousticEngine.get_auditory_features([self._vector])
+            self._energy = PhonemeEnergy(e_mot, air, v_drag, round(af.clarity_score, 3))
+        return self._energy
+
+    def drift(self, delta: Sequence[float] | np.ndarray | None = None, target: Sequence[float] | np.ndarray | None = None) -> Phoneme:
+        if target is not None:
+            return Phoneme(target)
+        if delta is not None:
+            new_v = self._vector.copy()
+            k = min(len(delta), 10)
+            for i in range(k):
+                new_v[i] += float(delta[i])
+            return Phoneme(new_v)
+        return Phoneme(self)
+
+    def synthesize_wav(self, base_f0: float = 120.0) -> bytes:
+        return AcousticEngine.synthesize_wav_pcm([self._vector], base_f0=base_f0)
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Phoneme) and np.array_equal(self._vector, other._vector)
+
+    def __len__(self) -> int:
+        return 10
+
+    def __getitem__(self, idx: int) -> float:
+        return float(self._vector[idx])
+
+    def __iter__(self):
+        return iter(self._vector)
+
+    def __repr__(self) -> str:
+        return f"Phoneme(/{self.ipa}/, tau={self.duration:.2f})"
+
+
+def repair_phonemes(phonemes: Sequence[Phoneme], profile=None, max_passes: int = 3) -> list[Phoneme]:
+    s_comp = getattr(profile, "syllable_complexity", 0.50) if profile else 0.50
+    budget = 0.85 + 2.20 * s_comp
+    out = list(phonemes)
+
+    for _ in range(max_passes):
+        if len(out) <= 1:
+            break
+        changed = False
+        i = 0
+        while i < len(out) - 1:
+            p1, p2 = out[i], out[i + 1]
+            if float(sensory_distance(p1.g, p2.g)) < 0.15:
+                out[i] = Phoneme(0.50 * (p1.g + p2.g), duration=min(2.5, p1.duration + 0.6 * p2.duration))
+                out.pop(i + 1)
+                changed = True
+                continue
+            if p1.is_vowel == p2.is_vowel and transition_cost(p1, p2) > budget:
+                tot = p1.duration + p2.duration
+                g_mix = (p1.duration * p1.g + p2.duration * p2.g) / tot
+                out[i] = Phoneme(g_mix, duration=min(2.0, tot * 0.70))
+                out.pop(i + 1)
+                changed = True
+                continue
+            i += 1
+        if not changed:
+            break
+    return out
 
 
 class Morpheme:
@@ -75,7 +235,7 @@ class Morpheme:
 
 class Word:
     __slots__ = (
-        'id', 'vector', '_phonemes', '_syllables', '_morphemes',
+        'id', 'vector', '_phonemes', '_morphemes',
         'derivation', 'usage_frequency', 'category', 'generation_born',
         'epochs_idle', 'senses', '_form', '_plain_form',
         '_cached_cost', '_cost_env_key', 'is_archaic', 'replaced_by_id',
@@ -89,7 +249,6 @@ class Word:
         self,
         vector: SemanticVector,
         phonemes: Sequence[Phoneme] | None = None,
-        syllables: Sequence[Syllable] | None = None,
         morphemes: Sequence[Morpheme] | None = None,
         derivation: DerivationRecord | None = None,
         word_id: int | None = None,
@@ -100,7 +259,6 @@ class Word:
         is_ephemeral: bool = False,
         is_archaic: bool = False,
         history: list[PhoneticHistoryEntry] | None = None,
-        **kwargs,
     ):
         if word_id is not None:
             self.id = word_id
@@ -112,7 +270,6 @@ class Word:
             self.id = Word._ID_COUNTER
 
         self.vector = vector
-        self._syllables = list(syllables) if syllables else []
         self._morphemes = list(morphemes) if morphemes else []
         self._form = None
         self._plain_form = None
@@ -121,18 +278,10 @@ class Word:
         self.is_archaic = is_archaic
         self.replaced_by_id = None
 
-        if syllables:
-            flat: list[Phoneme] = []
-            for s in self._syllables:
-                flat.extend(s.to_phonemes())
-            self._phonemes = flat
-        elif phonemes is not None:
+        if phonemes is not None:
             self._phonemes = list(phonemes)
         elif self._morphemes:
-            flat = []
-            for m in self._morphemes:
-                flat.extend(m.phonemes)
-            self._phonemes = flat
+            self._phonemes = [p for m in self._morphemes for p in m.phonemes]
         else:
             self._phonemes = []
 
@@ -141,7 +290,6 @@ class Word:
         self.category = category
         self.generation_born = int(generation_born)
         self.epochs_idle = 0
-
         self.senses = senses if isinstance(senses, tuple) else (tuple(senses) if senses else (self.vector,))
 
         if not self._morphemes and self._phonemes:
@@ -153,13 +301,11 @@ class Word:
                 )
             ]
 
-        # Vectorized history log initialized at creation
         if history is not None:
             self._history = list(history)
         else:
-            init_tensor = self.tensor.copy()
             event_tag = "Proto-Root Coinage" if self.generation_born == 0 else "Productive Coinage"
-            self._history = [PhoneticHistoryEntry(epoch=self.generation_born, tensor=init_tensor, event=event_tag)]
+            self._history = [PhoneticHistoryEntry(epoch=self.generation_born, tensor=self.tensor.copy(), event=event_tag)]
 
     def _invalidate_cache(self) -> None:
         self._form = None
@@ -167,35 +313,26 @@ class Word:
         self._cached_cost = None
         self._cost_env_key = None
 
-    # -------------------------------------------------------------------------
-    # VECTORIZED HISTORY & ON-DEMAND IPA LOG
-    # -------------------------------------------------------------------------
-
     def record_evolution(
         self,
         epoch: int,
         new_phonemes: Sequence[Phoneme],
         event: str = "Phonetic Drift",
         min_divergence: float = 0.08,
-        force: bool = False
+        force: bool = False,
     ) -> bool:
-        """Records a new historical checkpoint if the phonetic tensor has diverged significantly."""
         if not new_phonemes:
             return False
-
         new_tensor = np.stack([p.vector for p in new_phonemes], axis=0)
-
         if not force and self._history:
             last_tensor = self._history[-1].tensor
             div = trajectory_distance(last_tensor[:, :9], new_tensor[:, :9])
             if div < min_divergence and (epoch - self._history[-1].epoch) < 30:
                 return False
-
         self._history.append(PhoneticHistoryEntry(epoch=epoch, tensor=new_tensor, event=event))
         return True
 
     def get_history_log(self, directional_bias: float = 0.50) -> list[dict]:
-        """Evaluates IPA forms lazily on demand from the stored vectorized tensors."""
         log = []
         for idx, entry in enumerate(self._history):
             if len(entry.tensor) > 0:
@@ -215,10 +352,6 @@ class Word:
     def history(self) -> list[PhoneticHistoryEntry]:
         return self._history
 
-    # -------------------------------------------------------------------------
-    # PHONEMES & TENSORS
-    # -------------------------------------------------------------------------
-
     @property
     def phonemes(self) -> list[Phoneme]:
         return self._phonemes
@@ -226,18 +359,27 @@ class Word:
     @phonemes.setter
     def phonemes(self, new_phonemes: Sequence[Phoneme]) -> None:
         self._phonemes = list(new_phonemes)
-        self._syllables = []
         self._invalidate_cache()
 
-        if len(self._morphemes) <= 1:
-            if not self._morphemes:
+        n_m = len(self._morphemes)
+        if n_m <= 1:
+            if n_m == 0:
                 self._morphemes = [Morpheme(self._phonemes, self.derivation.root_family_id)]
             else:
                 self._morphemes[0].phonemes = list(self._phonemes)
+        elif not self._phonemes:
+            for m in self._morphemes:
+                m.phonemes = []
         else:
-            m0_len = min(len(self._morphemes[0].phonemes), max(1, len(self._phonemes) - 1))
-            self._morphemes[0].phonemes = list(self._phonemes[:m0_len])
-            self._morphemes[1].phonemes = list(self._phonemes[m0_len:])
+            offset = 0
+            n_p = len(self._phonemes)
+            for idx, m in enumerate(self._morphemes):
+                if idx == n_m - 1:
+                    m.phonemes = list(self._phonemes[offset:])
+                else:
+                    take = min(len(m.phonemes), max(0, n_p - offset - (n_m - 1 - idx)))
+                    m.phonemes = list(self._phonemes[offset : offset + take])
+                    offset += take
 
     @property
     def morphemes(self) -> list[Morpheme]:
@@ -246,11 +388,7 @@ class Word:
     @morphemes.setter
     def morphemes(self, new_morphemes: Sequence[Morpheme]) -> None:
         self._morphemes = list(new_morphemes)
-        flat = []
-        for m in self._morphemes:
-            flat.extend(m.phonemes)
-        self._phonemes = flat
-        self._syllables = []
+        self._phonemes = [p for m in self._morphemes for p in m.phonemes]
         self._invalidate_cache()
 
     @property
@@ -275,22 +413,6 @@ class Word:
         return self._plain_form
 
     @property
-    def syllables(self) -> list[Syllable]:
-        if not self._syllables and self._phonemes:
-            self._syllables = syllabify(self._phonemes)
-        return self._syllables
-
-    @syllables.setter
-    def syllables(self, new_syllables: Sequence[Syllable]) -> None:
-        self._syllables = list(new_syllables)
-        if self._syllables:
-            flat: list[Phoneme] = []
-            for s in self._syllables:
-                flat.extend(s.to_phonemes())
-            self._phonemes = flat
-        self._invalidate_cache()
-
-    @property
     def duration(self) -> float:
         return sum(p.duration for p in self._phonemes)
 
@@ -302,13 +424,7 @@ class Word:
     def is_ephemeral(self) -> bool:
         return self.id < 0
 
-    def energetic_cost(
-        self,
-        profile=None,
-        env=None,
-        cultural_attention: Sequence[float] | None = None,
-        cohort_sample: Sequence[Word] | None = None,
-    ) -> float:
+    def energetic_cost(self, profile=None, env=None, **kwargs) -> float:
         env_key = (
             getattr(profile, "synthesis_index", 0.50),
             getattr(env, "altitude", 0.0),
@@ -316,12 +432,7 @@ class Word:
             getattr(env, "humidity", 0.50),
         )
         if self._cached_cost is None or self._cost_env_key != env_key:
-            self._cached_cost = word_energy(
-                self,
-                profile=profile,
-                env=env,
-                cultural_attention=cultural_attention,
-            )
+            self._cached_cost = word_energy(self, profile=profile, env=env)
             self._cost_env_key = env_key
         return self._cached_cost
 
@@ -335,7 +446,6 @@ class Word:
             word_id=self.id,
             vector=self.vector,
             phonemes=[p.drift() for p in self._phonemes],
-            syllables=[s for s in self._syllables],
             morphemes=[m.copy() for m in self._morphemes],
             derivation=self.derivation,
             usage_frequency=self.usage_frequency,
@@ -353,12 +463,21 @@ class Word:
         w.replaced_by_id = self.replaced_by_id
         return w
 
-    def __hash__(self) -> int: return hash(self.id)
+    def __hash__(self) -> int:
+        return hash(self.id)
+
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Word) and (self is other if (self.id < 0 or other.id < 0) else self.id == other.id)
-    def __len__(self) -> int: return len(self._phonemes)
-    def __getitem__(self, idx: int) -> Phoneme: return self._phonemes[idx]
-    def __iter__(self): return iter(self._phonemes)
+
+    def __len__(self) -> int:
+        return len(self._phonemes)
+
+    def __getitem__(self, idx: int) -> Phoneme:
+        return self._phonemes[idx]
+
+    def __iter__(self):
+        return iter(self._phonemes)
+
     def __repr__(self) -> str:
         cat = "ARCH" if self.is_archaic else ("FUNC" if self.category == LexicalCategory.FUNCTIONAL_CLOSED else "CONTENT")
         return f"Word(#{self.id}, /{self.form}/, U={self.usage_frequency:.2f}, {cat})"
